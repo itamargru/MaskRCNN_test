@@ -108,6 +108,8 @@ class ShapesDataset(utils.Dataset):
         image = np.array(image.resize([info['height'], info['width']]))
         for shape, color, dims in info['shapes']:
             image = self.draw_shape(image, shape, dims, color)
+        image_path = os.path.join(r"D:\Nati\Itamar_n_Shai\Datasets\DataSynth", "synth_"+str(image_id))
+        cv2.imwrite(image_path, image)
         return image
 
     def image_reference(self, image_id):
