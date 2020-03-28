@@ -306,6 +306,10 @@ class Dataset(object):
         self.num_classes = len(self.class_info)
         self.class_ids = np.arange(self.num_classes)
         self.class_names = [clean_name(c["name"]) for c in self.class_info]
+
+        ids = [c["id"] for c in self.class_info]
+        self.class_name2id = dict(zip(self.class_names, ids))
+
         self.num_images = len(self.image_info)
         self._image_ids = np.arange(self.num_images)
 
