@@ -8,7 +8,6 @@ Copyright (c) 2017 Matterport, Inc.
 Licensed under the MIT License (see LICENSE for details)
 Written by Waleed Abdulla
 """
- Ma
 import os
 import sys
 import math
@@ -76,9 +75,11 @@ class ShapesDataset(utils.Dataset):
         self.add_class("pdl1", 1, "pos")
         self.add_class("pdl1", 2, "neg")
         self.add_class("pdl1", 3, "inf")
+        self.add_class("pdl1", 4, "other")
 
-        PATH_TO_IMAGE_DIR = r'D:\Nati\Itamar_n_Shai\DataCCD\DataMaskRCNN\train'
-        ls_dir_images = os.listdir(PATH_TO_IMAGE_DIR)
+        self.PATH_TO_IMAGE_DIR = r'D:\Nati\Itamar_n_Shai\Datasets\DataCCD\DataMaskRCNN_copy\train'
+        self.PATH_SAVE_DATA = r"D:\Nati\Itamar_n_Shai\Datasets\DataSynth"
+        ls_dir_images = os.listdir(self.PATH_TO_IMAGE_DIR)
 
 
         # Add images
@@ -88,7 +89,7 @@ class ShapesDataset(utils.Dataset):
         for i in range(count):
             while os.path.isdir(ls_dir_images[i]):
                 i += 1
-            path_to_image = os.path.join(PATH_TO_IMAGE_DIR, ls_dir_images[i])
+            path_to_image = os.path.join(self.PATH_TO_IMAGE_DIR, ls_dir_images[i])
             _, shapes = self.random_image(height, width)
             self.add_image("pdl1", image_id=i, path=path_to_image,
                            width=width, height=height,
@@ -108,15 +109,16 @@ class ShapesDataset(utils.Dataset):
         image = np.array(image.resize([info['height'], info['width']]))
         for shape, color, dims in info['shapes']:
             image = self.draw_shape(image, shape, dims, color)
-        image_path = os.path.join(r"D:\Nati\Itamar_n_Shai\Datasets\DataSynth", "synth_"+str(image_id))
+        image_path = os.path.join(self.PATH_SAVE_DATA,"train",str(image_id))
+        image_path += ".jpeg"
         cv2.imwrite(image_path, image)
         return image
 
     def image_reference(self, image_id):
         """Return the shapes data of the image."""
         info = self.image_info[image_id]
-        if info["source"] == "shapes":
-            return info["shapes"]
+        if info["source"] == "pdl1":
+            return info['shapes']
         else:
             super(self.__class__).image_reference(self, image_id)
 
@@ -136,8 +138,15 @@ class ShapesDataset(utils.Dataset):
             mask[:, :, i] = mask[:, :, i] * occlusion
             occlusion = np.logical_and(
                 occlusion, np.logical_not(mask[:, :, i]))
+
         # Map class names to class IDs.
         class_ids = np.array([self.class_names.index(s[0]) for s in shapes])
+
+        for i, (shape, _, dims) in enumerate(info['shapes']):
+            path = os.path.join(self.PATH_SAVE_DATA,"mask_train",str(image_id))
+            path += "_" + shape + "_" + str(i) + ".png"
+            print(path)
+            cv2.imwrite(path, mask[:,:, i])
         return mask, class_ids.astype(np.int32)
 
     def draw_shape(self, image, shape, dims, color):
@@ -155,6 +164,9 @@ class ShapesDataset(utils.Dataset):
                                 (x + s / math.sin(math.radians(60)), y + s),
                                 ]], dtype=np.int32)
             image = cv2.fillPoly(image, points, color)
+        elif shape == "other":
+            image = cv2.ellipse(image, (x,y), (s,s*2/3),0,0,0, color, -1)
+
         return image
 
     def random_shape(self, height, width):
@@ -167,7 +179,7 @@ class ShapesDataset(utils.Dataset):
                             and location. Differs per shape type.
         """
         # Shape
-        shape = random.choice(["pos", "neg", "inf"])
+        shape = random.choice(["pos", "neg", "inf","other"])
         # Color
         color = tuple([random.randint(0, 255) for _ in range(3)])
         # Center x, y
@@ -200,6 +212,7 @@ class ShapesDataset(utils.Dataset):
         keep_ixs = utils.non_max_suppression(
             np.array(boxes), np.arange(N), 0.3)
         shapes = [s for i, s in enumerate(shapes) if i in keep_ixs]
+        # we currently don't use bg_color's value
         return bg_color, shapes
 
 
