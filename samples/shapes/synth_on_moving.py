@@ -103,7 +103,7 @@ class ShapesDataset(utils.Dataset):
         image = np.array(image.resize([info['height'], info['width']]))
         for shape, color, dims in info['shapes']:
             image = self.draw_shape(image, shape, dims, color)
-        image_path = os.path.join(self.PATH_SAVE_DATA, "train", str(image_id))
+        image_path = os.path.join(self.PATH_SAVE_DATA, "train", '{:05d}'.format(image_id))
         image_path += ".jpeg"
         cv2.imwrite(image_path, image)
         return image
@@ -137,8 +137,8 @@ class ShapesDataset(utils.Dataset):
         class_ids = np.array([self.class_names.index(s[0]) for s in shapes])
 
         for i, (shape, _, dims) in enumerate(info['shapes']):
-            path = os.path.join(self.PATH_SAVE_DATA, "mask_train", str(image_id))
-            path += "_" + shape + "_" + str(i) + ".png"
+            path = os.path.join(self.PATH_SAVE_DATA, "mask_train", '{:05d}'.format(image_id))
+            path += "_" + shape + "_" + '{:05d}'.format(i) + ".png"
             cv2.imwrite(path, mask[:, :, i])
         return mask, class_ids.astype(np.int32)
 
@@ -195,7 +195,7 @@ class ShapesDataset(utils.Dataset):
         # bounding boxes
         shapes = []
         boxes = []
-        N = random.randint(4, 6)
+        N = 2  # random.randint(4, 6)
         for _ in range(N):
             shape, color, dims = self.random_shape(height, width)
             shapes.append((shape, color, dims))
