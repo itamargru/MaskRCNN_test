@@ -33,6 +33,7 @@ import json
 import datetime
 import numpy as np
 import skimage.draw
+import cv2
 
 # Root directory of the project
 ROOT_DIR = os.getcwd()
@@ -125,7 +126,9 @@ class PDL1NetDataset(utils.Dataset):
         # }
         # We mostly care about the x and y coordinates of each region
         # TODO: make sure the json has the right name
-        annotations = json.load(open(os.path.join(dataset_dir, "train_synth_via_json.json")))
+        # ATTENTION! the parser will work only for via POLYGON segmented regions
+        # annotations = json.load(open(os.path.join(dataset_dir, "train_synth_via_json.json")))
+        annotations = json.load(open(os.path.join(dataset_dir, "via_export_json.json")))
         annotations = list(annotations.values())  # don't need the dict keys
 
         # The VIA tool saves images in the JSON even if they don't have any
@@ -205,6 +208,14 @@ class PDL1NetDataset(utils.Dataset):
 
         # Return mask, and array of class IDs of each instance. Since we have
         # one class ID only, we return an array of 1s
+        for i in np.arange(mask.shape[2]):
+            mask_copy = mask.copy()
+            current_mask = mask_copy[:,:,i]
+            current_mask[ current_mask == 1 ] = 255
+            dir_to_save = r'D:\Nati\Itamar_n_Shai\Datasets\DataSynth\occlusion_result'
+            image_path = os.path.join(dir_to_save, str(int(image_id)) + "_" + str(i) + '.png')
+            cv2.imwrite(image_path, current_mask)
+
         return mask, mask_classes
 
     def image_reference(self, image_id):
