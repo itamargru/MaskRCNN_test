@@ -36,15 +36,18 @@ import skimage.draw
 
 # Root directory of the project
 ROOT_DIR = os.getcwd()
-if ROOT_DIR.endswith("samples/balloon"):
+if ROOT_DIR.endswith(os.path.normpath("samples/balloon")):
     # Go up two levels to the repo root
-    ROOT_DIR = os.path.dirname(os.path.dirname(ROOT_DIR))
+    ROOT_DIR = os.path.join(ROOT_DIR, "..", "..")
 
 # Import Mask RCNN
 sys.path.append(ROOT_DIR)
-from config import Config
-import utils
-import model as modellib
+from mrcnn.config import Config
+from mrcnn import utils
+import mrcnn.model as modellib
+# from mrcnn import visualize
+# from mrcnn.model import log
+
 
 # Path to trained weights file
 COCO_WEIGHTS_PATH = os.path.join(ROOT_DIR, "mask_rcnn_coco.h5")
@@ -70,7 +73,7 @@ class BalloonConfig(Config):
     IMAGES_PER_GPU = 2
 
     # Number of classes (including background)
-    NUM_CLASSES = 1 + 3  # Background + baloon
+    NUM_CLASSES = 1 + 4  # Background + baloon
 
     # Number of training steps per epoch
     STEPS_PER_EPOCH = 100
@@ -94,12 +97,17 @@ class BalloonDataset(utils.Dataset):
         self.add_class("pdl1", 1, "inflammation")
         self.add_class("pdl1", 2, "negative")
         self.add_class("pdl1", 3, "positive")
+        # if we decide to delete the next line reduce the number of classes in the config
         self.add_class("pdl1", 4, "other")
+
+        ids = [c["id"] for c in self.class_info]
+        names = [c["name"] for c in self.class_info]
+        self.class_name2id = dict(zip(names, ids))
 
         # Train or validation dataset?
         # TODO: change the path to the right one
-        assert subset in ["train", "val"]
-        dataset_dir = os.path.join(dataset_dir, subset)
+        # assert subset in ["train", "val"]
+        # dataset_dir = os.path.join(dataset_dir, subset)
 
         # Load annotations
         # VGG Image Annotator saves each image in the form:
@@ -117,20 +125,22 @@ class BalloonDataset(utils.Dataset):
         # }
         # We mostly care about the x and y coordinates of each region
         # TODO: make sure the json has the right name
-        annotations = json.load(open(os.path.join(dataset_dir, "via_region_data.json")))
+        annotations = json.load(open(os.path.join(dataset_dir, "train_synth_via_json.json")))
         annotations = list(annotations.values())  # don't need the dict keys
 
         # The VIA tool saves images in the JSON even if they don't have any
         # annotations. Skip unannotated images.
         annotations = [a for a in annotations if a['regions']]
-        type2class = {"1":"inflammation", "2":"negative", "3":"positive", "4":"other"}
+        # type2class = {"1":"inflammation", "2":"negative", "3":"positive", "4":"other"}
+        type2class = {"inf": "inflammation", "neg": "negative", "pos": "positive", "other": "other"}
         # Add images
         for a in annotations:
             # Get the x, y coordinaets of points of the polygons that make up
             # the outline of each object instance. There are stores in the
             # shape_attributes (see json format above)
-            polygons = [r['shape_attributes'] for r in a['regions'].values()]
-            classes = [type2class[r['region_attributes']['type']] for r in a['regions'].values()]
+            polygons = [r['shape_attributes'] for r in a['regions']]
+            classes = [r['region_attributes']['category'] for r in a['regions']]  # validate that a list of classes is obtained
+            classes = [type2class[c] for c in classes]
 
             # load_mask() needs the image size to convert polygons to masks.
             # Unfortunately, VIA doesn't include it in JSON, so we must read
@@ -155,13 +165,12 @@ class BalloonDataset(utils.Dataset):
         class_ids: a 1D array of class IDs of the instance masks.
         """
         # If not a balloon dataset image, delegate to parent class.
-        image_info = self.image_info[image_id]
-        if image_info["source"] != "pdl1":
+        info = self.image_info[image_id]
+        if info["source"] != "pdl1":
             return super(self.__class__, self).load_mask(image_id)
 
         # Convert polygons to a bitmap mask of shape
         # [height, width, instance_count]
-        info = self.image_info[image_id]
         mask = np.zeros([info["height"], info["width"], len(info["polygons"])],
                         dtype=np.uint8)
         # TODO: make sure no intersection are made between polygons
@@ -169,7 +178,8 @@ class BalloonDataset(utils.Dataset):
             # Get indexes of pixels inside the polygon and set them to 1
             rr, cc = skimage.draw.polygon(p['all_points_y'], p['all_points_x'])
             mask[rr, cc, i] = 1
-        mask_classes = [self.class_name2id[name] for name in self.class_names]
+        # mask_classes = [self.class_name2id[name] for name in self.class_names]
+        mask_classes = [self.class_name2id[name] for name in info["classes"]]
         mask_classes = np.array(mask_classes, dtype=np.int32)
 
         # clean masks intersections
@@ -177,11 +187,13 @@ class BalloonDataset(utils.Dataset):
         united_masks = np.zeros([info["height"], info["width"], self.num_classes])
         for i in np.arange(self.num_classes):
             masks_of_same_class = mask[:, :, mask_classes == (i+1)]
-            for single_mask_index in masks_of_same_class.shape[2]:
-                united_masks[i] = np.logical_or(united_masks[:,:,i], masks_of_same_class[:,:,single_mask_index])
+            for single_mask_index in np.arange(masks_of_same_class.shape[2]):
+                united_masks[:,:,i] = np.logical_or(united_masks[:,:,i], masks_of_same_class[:,:,single_mask_index])
         # clean each mask from intersections with united_masks
+        classes_array = np.array([self.class_name2id[name] for name in self.class_names])
         for i in np.arange(mask.shape[2]):
-            stronger_classes = np.unique(mask_classes[mask_classes > mask_classes[i]])
+            # stronger_classes = np.unique(mask_classes[mask_classes > mask_classes[i]])
+            stronger_classes = classes_array[classes_array > mask_classes[i]]
             stronger_classes -= 1  # change from class number to index in united_masks (starts from 0)
             curr_mask = mask[:, :, i]
             for class_index in stronger_classes:
@@ -223,7 +235,7 @@ def train(model):
     print("Training network heads")
     model.train(dataset_train, dataset_val,
                 learning_rate=config.LEARNING_RATE,
-                epochs=30,
+                epochs=1,  # epochs=30,
                 layers='heads')
 
 
@@ -354,6 +366,7 @@ if __name__ == '__main__':
     config.display()
 
     # Create model
+    print("create model")
     if args.command == "train":
         model = modellib.MaskRCNN(mode="training", config=config,
                                   model_dir=args.logs)
@@ -369,7 +382,7 @@ if __name__ == '__main__':
             utils.download_trained_weights(weights_path)
     elif args.weights.lower() == "last":
         # Find last trained weights
-        weights_path = model.find_last()[1]
+        weights_path = model.find_last()
     elif args.weights.lower() == "imagenet":
         # Start from ImageNet trained weights
         weights_path = model.get_imagenet_weights()
