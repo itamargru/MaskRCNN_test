@@ -71,7 +71,7 @@ class PDL1NetConfig(Config):
 
     # We use a GPU with 12GB memory, which can fit two images.
     # Adjust down if you use a smaller GPU.
-    IMAGES_PER_GPU = 2
+    IMAGES_PER_GPU = 1
 
     # Number of classes (including background)
     NUM_CLASSES = 1 + 4  # Background + baloon
@@ -81,6 +81,8 @@ class PDL1NetConfig(Config):
 
     # Skip detections with < 90% confidence
     DETECTION_MIN_CONFIDENCE = 0.9
+
+    BACKBONE = "resnet50"
 
 
 ############################################################
@@ -108,7 +110,7 @@ class PDL1NetDataset(utils.Dataset):
         # Train or validation dataset?
         # TODO: change the path to the right one
         # assert subset in ["train", "val"]
-        # dataset_dir = os.path.join(dataset_dir, subset)
+        dataset_dir = os.path.join(dataset_dir, subset)
 
         # Load annotations
         # VGG Image Annotator saves each image in the form:
@@ -179,6 +181,11 @@ class PDL1NetDataset(utils.Dataset):
         # TODO: make sure no intersection are made between polygons
         for i, p in enumerate(info["polygons"]):
             # Get indexes of pixels inside the polygon and set them to 1
+            if p['all_points_y'] is None or p['all_points_x'] is None:
+                continue
+            #  check if an element in the list is also a list
+            if any(isinstance(elem, list) for elem in p['all_points_y']) or any(isinstance(elem, list) for elem in p['all_points_x']):
+                continue
             rr, cc = skimage.draw.polygon(p['all_points_y'], p['all_points_x'])
             mask[rr, cc, i] = 1
         # mask_classes = [self.class_name2id[name] for name in self.class_names]
@@ -246,7 +253,7 @@ def train(model):
     print("Training network heads")
     model.train(dataset_train, dataset_val,
                 learning_rate=config.LEARNING_RATE,
-                epochs=1,  # epochs=30,
+                epochs=10,
                 layers='heads')
 
 
