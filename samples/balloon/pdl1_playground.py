@@ -253,8 +253,11 @@ def train(model):
     print("Training network heads")
     model.train(dataset_train, dataset_val,
                 learning_rate=config.LEARNING_RATE,
-                epochs=10,
+                epochs=30,
                 layers='heads')
+
+    val_generator = mrcnn.data_generator(dataset_val, self.config, shuffle=True,
+                                   batch_size=self.config.BATCH_SIZE)
 
 
 def color_splash(image, mask):
