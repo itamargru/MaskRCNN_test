@@ -259,6 +259,59 @@ def train(model):
     val_generator = mrcnn.data_generator(dataset_val, self.config, shuffle=True,
                                    batch_size=self.config.BATCH_SIZE)
 
+import visualize_pdl1
+
+def test(model):
+    class InferenceConfig(PDL1NetConfig):
+        GPU_COUNT = 1
+        IMAGES_PER_GPU = 1
+
+    # TODO: add test dataset
+    # Validation dataset
+    dataset_val = PDL1NetDataset()
+    dataset_val.load_pdl1net_dataset(args.dataset, "val")
+    dataset_val.prepare()
+
+    print("start test")
+    inference_config = InferenceConfig()
+    list_pred_masks = []
+    list_gt_masks = []
+    matched_classes = []
+    APs = []
+    for image_id in np.arange(dataset_val.num_images):
+        # Load image and ground truth data
+        image_name = dataset_val.image_info[image_id]['id']
+        image, image_meta, gt_class_ids, gt_bboxes, gt_masks = \
+            modellib.load_image_gt(dataset_val, inference_config,
+                                   image_id, use_mini_mask=False)
+        # molded_images = np.expand_dims(modellib.mold_image(image, inference_config), 0)
+        # Run object detection
+        results = model.detect([image], verbose=0)
+        r = results[0]
+
+        gt_match, pred_match, overlaps = utils.compute_matches(gt_bboxes, gt_class_ids, gt_masks,
+                                                            r["rois"], r["class_ids"], r["scores"], r['masks'],
+                                                            iou_threshold=0.5, score_threshold=0.0)
+
+        #  obtain all the elemnts in pred which have corresponding GT elemnt
+        pred_match_exist = pred_match > -1
+        #  retrieve the index of the GT element at the position of the correlated element in prediction
+        sort_gt_as_pred = pred_match[pred_match_exist].astype(int)
+        matched_classes.append(r["class_ids"][pred_match_exist])
+        list_pred_masks.append(r['masks'][:,:,pred_match_exist])
+        list_gt_masks.append(gt_masks[:,:,sort_gt_as_pred])
+
+        # # Compute AP
+        # AP, precisions, recalls, overlaps = \
+        #     utils.compute_ap(gt_bboxes, gt_class_ids, gt_masks,
+        #                      r["rois"], r["class_ids"], r["scores"], r['masks'])
+        # APs.append(AP)
+
+    num_classes = inference_config.NUM_CLASSES - 1
+    IoU = visualize_pdl1.compute_batch_iou(num_classes, list_pred_masks, list_gt_masks, matched_classes)
+    print(IoU)
+
+
 
 def color_splash(image, mask):
     """Apply color splash effect.
@@ -364,7 +417,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Validate arguments
-    if args.command == "train":
+    if args.command == "train" or args.command == "test":
         assert args.dataset, "Argument --dataset is required for training"
     elif args.command == "splash":
         assert args.image or args.video,\
@@ -427,6 +480,8 @@ if __name__ == '__main__':
     elif args.command == "splash":
         detect_and_color_splash(model, image_path=args.image,
                                 video_path=args.video)
+    elif args.command == "test":
+        test(model)
     else:
         print("'{}' is not recognized. "
               "Use 'train' or 'splash'".format(args.command))
