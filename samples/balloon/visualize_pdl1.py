@@ -57,4 +57,46 @@ def compute_mean_iou_per_image(num_classes, pred_masks, gt_masks, matched_classe
     return IoU_per_class, class_exist.astype(np.uint8)
 
 def plot_session(model):
+    # Get input and output to classifier and mask heads.
+    mrcnn = model.run_graph([image], [
+        ("proposals", model.keras_model.get_layer("ROI").output),
+        ("probs", model.keras_model.get_layer("mrcnn_class").output),
+        ("deltas", model.keras_model.get_layer("mrcnn_bbox").output),
+        ("masks", model.keras_model.get_layer("mrcnn_mask").output),
+        ("detections", model.keras_model.get_layer("mrcnn_detection").output),
+    ])
     pass
+
+import itertools
+def get_confussion_matrix(num_classes, gt_class_ids, pred_class_ids, pred_scores,
+                  overlaps, class_names, threshold=0.5):
+    """Draw a grid showing how ground truth objects are classified.
+    gt_class_ids: [N] int. Ground truth class IDs
+    pred_class_id: [N] int. Predicted class IDs
+    pred_scores: [N] float. The probability scores of predicted classes
+    overlaps: [pred_boxes, gt_boxes] IoU overlaps of predictions and GT boxes.
+    class_names: list of all class names in the dataset
+    threshold: Float. The prediction probability required to predict a class
+    """
+    gt_class_ids = gt_class_ids[gt_class_ids != 0]
+    pred_class_ids = pred_class_ids[pred_class_ids != 0]
+
+    confussion_matrix = np.zeros((num_classes + 1, num_classes + 1))
+
+    for i, j in itertools.product(range(overlaps.shape[0]), range(overlaps.shape[1])):
+        if overlaps[i, j] > threshold:
+            confussion_matrix[pred_class_ids[i], gt_class_ids[j]] += 1
+
+    thresh = threshold
+    if overlaps.shape[0] != 0 and overlaps.shape[1] != 0:
+        max_iou_pred = np.max(overlaps, axis=1)
+        select_smaller_thresh =  max_iou_pred < thresh
+        class_pred = pred_class_ids[select_smaller_thresh]
+        confussion_matrix[class_pred, np.zeros_like(class_pred)] += 1
+
+        max_iou_gt = np.max(overlaps, axis=0)
+        select_smaller_thresh = max_iou_gt < thresh
+        class_gt = gt_class_ids[select_smaller_thresh]
+        confussion_matrix[np.zeros_like(class_gt), class_gt] += 1
+
+    return confussion_matrix

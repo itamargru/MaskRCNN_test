@@ -278,6 +278,7 @@ def test(model):
     list_gt_masks = []
     matched_classes = []
     APs = []
+    confusstion_matrix = np.zeros((dataset_val.num_classes, dataset_val.num_classes))
     for image_id in np.arange(dataset_val.num_images):
         # Load image and ground truth data
         image_name = dataset_val.image_info[image_id]['id']
@@ -292,6 +293,13 @@ def test(model):
         gt_match, pred_match, overlaps = utils.compute_matches(gt_bboxes, gt_class_ids, gt_masks,
                                                             r["rois"], r["class_ids"], r["scores"], r['masks'],
                                                             iou_threshold=0.5, score_threshold=0.0)
+        # Compute AP
+        AP, precisions, recalls, overlaps = \
+            utils.compute_ap(gt_bboxes, gt_class_ids, gt_masks,
+                             r["rois"], r["class_ids"], r["scores"], r['masks'])
+
+        confusstion_matrix += visualize_pdl1.get_confussion_matrix(4, gt_class_ids, r["class_ids"], r["scores"],
+                  overlaps, [], threshold=0.5)
 
         #  obtain all the elemnts in pred which have corresponding GT elemnt
         pred_match_exist = pred_match > -1
@@ -301,12 +309,10 @@ def test(model):
         list_pred_masks.append(r['masks'][:,:,pred_match_exist])
         list_gt_masks.append(gt_masks[:,:,sort_gt_as_pred])
 
-        # # Compute AP
-        # AP, precisions, recalls, overlaps = \
-        #     utils.compute_ap(gt_bboxes, gt_class_ids, gt_masks,
-        #                      r["rois"], r["class_ids"], r["scores"], r['masks'])
-        # APs.append(AP)
+        APs.append(AP)
 
+    row_sum = np.sum(confusstion_matrix, axis=1)
+    confusstion_matrix[row_sum > 0, :] = confusstion_matrix[row_sum > 0, :] / row_sum[row_sum > 0]
     num_classes = inference_config.NUM_CLASSES - 1
     IoU = visualize_pdl1.compute_batch_iou(num_classes, list_pred_masks, list_gt_masks, matched_classes)
     print(IoU)
