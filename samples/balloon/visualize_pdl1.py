@@ -1,6 +1,7 @@
 
 import numpy as np
 import mrcnn.utils as utils
+import matplotlib.pyplot as plt
 
 # TODO: create function in Tester that compute the inputs for this function
 def compute_batch_iou(num_classes, list_pred_masks, list_gt_masks, matched_classes):
@@ -68,7 +69,7 @@ def plot_session(model):
     pass
 
 import itertools
-def get_confussion_matrix(num_classes, gt_class_ids, pred_class_ids, pred_scores,
+def get_confusion_matrix(num_classes, gt_class_ids, pred_class_ids, pred_scores,
                   overlaps, class_names, threshold=0.5):
     """Draw a grid showing how ground truth objects are classified.
     gt_class_ids: [N] int. Ground truth class IDs
@@ -81,22 +82,53 @@ def get_confussion_matrix(num_classes, gt_class_ids, pred_class_ids, pred_scores
     gt_class_ids = gt_class_ids[gt_class_ids != 0]
     pred_class_ids = pred_class_ids[pred_class_ids != 0]
 
-    confussion_matrix = np.zeros((num_classes + 1, num_classes + 1))
+    confusion_matrix = np.zeros((num_classes + 1, num_classes + 1))
 
     for i, j in itertools.product(range(overlaps.shape[0]), range(overlaps.shape[1])):
         if overlaps[i, j] > threshold:
-            confussion_matrix[pred_class_ids[i], gt_class_ids[j]] += 1
+            confusion_matrix[pred_class_ids[i], gt_class_ids[j]] += 1
 
     thresh = threshold
     if overlaps.shape[0] != 0 and overlaps.shape[1] != 0:
         max_iou_pred = np.max(overlaps, axis=1)
         select_smaller_thresh =  max_iou_pred < thresh
         class_pred = pred_class_ids[select_smaller_thresh]
-        confussion_matrix[class_pred, np.zeros_like(class_pred)] += 1
+        confusion_matrix[class_pred, np.zeros_like(class_pred)] += 1
 
         max_iou_gt = np.max(overlaps, axis=0)
         select_smaller_thresh = max_iou_gt < thresh
         class_gt = gt_class_ids[select_smaller_thresh]
-        confussion_matrix[np.zeros_like(class_gt), class_gt] += 1
+        confusion_matrix[np.zeros_like(class_gt), class_gt] += 1
 
-    return confussion_matrix
+    return confusion_matrix
+
+def plot_confusion_matrix(confusion_matrix, class_names, threshold=0.5):
+    """Draw a grid showing how ground truth objects are classified.
+    gt_class_ids: [N] int. Ground truth class IDs
+    pred_class_id: [N] int. Predicted class IDs
+    pred_scores: [N] float. The probability scores of predicted classes
+    confusion_matrix: [pred_boxes, gt_boxes] IoU confusion_matrix of predictions and GT boxes.
+    class_names: list of all class names in the dataset
+    threshold: Float. The prediction probability required to predict a class
+    """
+    fig = plt.figure(figsize=(12, 10))
+    plt.imshow(confusion_matrix, interpolation='nearest', cmap=plt.cm.Blues)
+    plt.yticks(np.arange(len(class_names)), class_names)
+    plt.xticks(np.arange(len(class_names)), class_names, rotation=90)
+
+    thresh = confusion_matrix.max() / 2.
+    for i, j in itertools.product(range(confusion_matrix.shape[0]),
+                                  range(confusion_matrix.shape[1])):
+        color = ("white" if confusion_matrix[i, j] > thresh
+                 else "black" if confusion_matrix[i, j] > 0
+                 else "grey")
+        plt.text(j, i, "{:.3f}".format(confusion_matrix[i, j]),
+                 horizontalalignment="center", verticalalignment="center",
+                 fontsize=9, color=color)
+
+    plt.tight_layout()
+    plt.xlabel("Ground Truth")
+    plt.ylabel("Predictions")
+    plt.title("Confusion Matrix")
+    plt.show()
+    return fig

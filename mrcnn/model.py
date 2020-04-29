@@ -1231,6 +1231,7 @@ def load_image_gt(dataset, config, image_id, augment=False, augmentation=None,
     # This requires the imgaug lib (https://github.com/aleju/imgaug)
     if augmentation:
         import imgaug
+        from imgaug.augmentables.segmaps import SegmentationMapOnImage
 
         # Augmenters that are safe to apply to masks
         # Some, such as Affine, have settings that make them unsafe, so always
@@ -1246,12 +1247,16 @@ def load_image_gt(dataset, config, image_id, augment=False, augmentation=None,
         # Store shapes before augmentation to compare
         image_shape = image.shape
         mask_shape = mask.shape
+        # image, mask = augmentation(image=image, segmentation_maps=mask)
         # Make augmenters deterministic to apply similarly to images and masks
         det = augmentation.to_deterministic()
         image = det.augment_image(image)
         # Change mask to np.uint8 because imgaug doesn't support np.bool
-        mask = det.augment_image(mask.astype(np.uint8),
-                                 hooks=imgaug.HooksImages(activator=hook))
+        augMasks = [SegmentationMapOnImage(mask[:,:,i], shape=image_shape) for i in np.arange(mask.shape[2])]
+        augMasks = det.augment_segmentation_maps(augMasks, hooks=imgaug.HooksImages(activator=hook))
+        augMasks = [s.get_arr() for s in augMasks]
+        mask = np.stack(augMasks, axis=2)
+        # mask = det.augment_image(mask.astype(np.uint8), hooks=imgaug.HooksImages(activator=hook))
         # Verify that shapes didn't change
         assert image.shape == image_shape, "Augmentation shouldn't change image size"
         assert mask.shape == mask_shape, "Augmentation shouldn't change mask size"

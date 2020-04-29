@@ -234,6 +234,25 @@ class PDL1NetDataset(utils.Dataset):
             super(self.__class__, self).image_reference(image_id)
 
 
+from imgaug import augmenters as iaa
+import PIL
+import matplotlib.pyplot as plt
+
+def augmenter():
+    seq = iaa.Sequential([
+        iaa.Crop(px=(0, 16)), # crop images from each side by 0 to 16px (randomly chosen)
+        iaa.Fliplr(0.5), # horizontally flip 50% of the images
+        iaa.GaussianBlur(sigma=(0, 3.0)) # blur images with a sigma of 0 to 3.0
+    ])
+    # p = r"D:\Nati\Itamar_n_Shai\Mask_RCNN\images\4410436637_7b0ca36ee7_z.jpg"
+    # image = np.array(PIL.Image.open(p))
+    # det = seq.to_deterministic()
+    # image = det.augment_images([image])
+    # plt.imshow(image[0])
+    # plt.show()
+    return seq
+
+
 def train(model):
     """Train the model."""
     # Training dataset.
@@ -251,13 +270,15 @@ def train(model):
     # COCO trained weights, we don't need to train too long. Also,
     # no need to train all layers, just the heads should do it.
     print("Training network heads")
+    seq = augmenter()
     model.train(dataset_train, dataset_val,
                 learning_rate=config.LEARNING_RATE,
                 epochs=30,
-                layers='heads')
+                layers='heads',
+                augmentation=seq)
 
-    val_generator = mrcnn.data_generator(dataset_val, self.config, shuffle=True,
-                                   batch_size=self.config.BATCH_SIZE)
+    # val_generator = mrcnn.data_generator(dataset_val, self.config, shuffle=True,
+    #                                batch_size=self.config.BATCH_SIZE)
 
 import visualize_pdl1
 
@@ -293,12 +314,12 @@ def test(model):
         gt_match, pred_match, overlaps = utils.compute_matches(gt_bboxes, gt_class_ids, gt_masks,
                                                             r["rois"], r["class_ids"], r["scores"], r['masks'],
                                                             iou_threshold=0.5, score_threshold=0.0)
-        # Compute AP
-        AP, precisions, recalls, overlaps = \
-            utils.compute_ap(gt_bboxes, gt_class_ids, gt_masks,
-                             r["rois"], r["class_ids"], r["scores"], r['masks'])
+        # # Compute AP
+        # AP, precisions, recalls, overlaps = \
+        #     utils.compute_ap(gt_bboxes, gt_class_ids, gt_masks,
+        #                      r["rois"], r["class_ids"], r["scores"], r['masks'])
 
-        confusstion_matrix += visualize_pdl1.get_confussion_matrix(4, gt_class_ids, r["class_ids"], r["scores"],
+        confusstion_matrix += visualize_pdl1.get_confusion_matrix(4, gt_class_ids, r["class_ids"], r["scores"],
                   overlaps, [], threshold=0.5)
 
         #  obtain all the elemnts in pred which have corresponding GT elemnt
@@ -309,13 +330,19 @@ def test(model):
         list_pred_masks.append(r['masks'][:,:,pred_match_exist])
         list_gt_masks.append(gt_masks[:,:,sort_gt_as_pred])
 
-        APs.append(AP)
+        # APs.append(AP)
 
-    row_sum = np.sum(confusstion_matrix, axis=1)
-    confusstion_matrix[row_sum > 0, :] = confusstion_matrix[row_sum > 0, :] / row_sum[row_sum > 0]
+    # row_sum = np.sum(confusstion_matrix, axis=1).reshape((-1,1)) + 1e-10
+    # select_row_nonzero = np.tile(row_sum,(1, row_sum.shape[0])) > 0
+    # confusstion_matrix = (confusstion_matrix * select_row_nonzero) / row_sum
     num_classes = inference_config.NUM_CLASSES - 1
     IoU = visualize_pdl1.compute_batch_iou(num_classes, list_pred_masks, list_gt_masks, matched_classes)
     print(IoU)
+    print("the confusion matrix is:\n {}".format(confusstion_matrix))
+    # create new class list to replace the 'BG' with 'other'
+    right_indices = [4, 1, 2, 3]
+    copy_class_names = [dataset_val.class_names[i] for i in right_indices]
+    visualize_pdl1.plot_confusion_matrix(confusstion_matrix[0:4, 0:4], copy_class_names)
 
 
 
