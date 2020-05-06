@@ -132,3 +132,24 @@ def plot_confusion_matrix(confusion_matrix, class_names, threshold=0.5):
     plt.title("Confusion Matrix")
     plt.show()
     return fig
+
+def acumulate_confussion_matrix_multiple_thresh(matrices, threshs, num_classes, gt_class_ids, pred_class_ids, pred_scores,
+                  overlaps, class_names):
+    for i, thresh in enumerate(threshs):
+        matrices[i,:,:] += get_confusion_matrix(num_classes, gt_class_ids, pred_class_ids, pred_scores,
+                  overlaps, class_names, threshold=thresh)
+    return matrices, threshs
+
+import matplotlib.pyplot as plt
+
+def plot_auc_roc(matrices, threshes, positive_class_num):
+    TP =  matrices[:, positive_class_num, positive_class_num]
+    FP = np.sum(matrices[:,positive_class_num,:], axis=1) - TP
+    FN = np.sum(matrices[:, :, positive_class_num], axis=1) - TP
+    TN = np.sum(matrices, axis=(1,2)) - FP - FN + TP
+
+    TPR = np.flip(TP / (FN + TP))
+    FPR = np.flip(FP / (FP + TN))
+    fig, ax = plt.subplots()
+    ax.plot(FPR, TPR)
+    plt.show()

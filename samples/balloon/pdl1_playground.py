@@ -318,8 +318,11 @@ def test(model):
     list_gt_masks = []
     matched_classes = []
     APs = []
+    NUM_THRESH = 11
+    threshes = np.linspace(0,1,NUM_THRESH)
+    matrices = np.zeros((NUM_THRESH, dataset_val.num_classes, dataset_val.num_classes))
     confusstion_matrix = np.zeros((dataset_val.num_classes, dataset_val.num_classes))
-    for image_id in np.arange(dataset_val.num_images):
+    for image_id in [0]: # np.arange(dataset_val.num_images):
         # Load image and ground truth data
         image_name = dataset_val.image_info[image_id]['id']
         image, image_meta, gt_class_ids, gt_bboxes, gt_masks = \
@@ -333,11 +336,11 @@ def test(model):
         gt_match, pred_match, overlaps = utils.compute_matches(gt_bboxes, gt_class_ids, gt_masks,
                                                             r["rois"], r["class_ids"], r["scores"], r['masks'],
                                                             iou_threshold=0.5, score_threshold=0.0)
-        # # Compute AP
-        # AP, precisions, recalls, overlaps = \
-        #     utils.compute_ap(gt_bboxes, gt_class_ids, gt_masks,
-        #                      r["rois"], r["class_ids"], r["scores"], r['masks'])
 
+        matrices, threshes = visualize_pdl1.acumulate_confussion_matrix_multiple_thresh(matrices, threshes, 4,
+                                                                                        gt_class_ids,
+                                                                                        r["class_ids"], r["scores"],
+                                                                                        overlaps, [])
         confusstion_matrix += visualize_pdl1.get_confusion_matrix(4, gt_class_ids, r["class_ids"], r["scores"],
                   overlaps, [], threshold=0.5)
 
@@ -349,11 +352,12 @@ def test(model):
         list_pred_masks.append(r['masks'][:,:,pred_match_exist])
         list_gt_masks.append(gt_masks[:,:,sort_gt_as_pred])
 
-        # APs.append(AP)
-
+    visualize_pdl1.plot_auc_roc(matrices, threshes, positive_class_num=1)
     # row_sum = np.sum(confusstion_matrix, axis=1).reshape((-1,1)) + 1e-10
     # select_row_nonzero = np.tile(row_sum,(1, row_sum.shape[0])) > 0
     # confusstion_matrix = (confusstion_matrix * select_row_nonzero) / row_sum
+    from sklearn.metrics import roc_curve
+    a = roc_curve(np.array([0,1]), np.array([0,1]))
     num_classes = inference_config.NUM_CLASSES - 1
     IoU = visualize_pdl1.compute_batch_iou(num_classes, list_pred_masks, list_gt_masks, matched_classes)
     print(IoU)
