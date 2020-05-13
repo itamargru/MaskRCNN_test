@@ -86,6 +86,112 @@ def compute_backbone_shapes(config, image_shape):
 
 
 ############################################################
+#  VGG-16 Graph
+############################################################
+
+def VGG_16(input_image, architecture, stage5=False, train_bn=True, weights_path=None):
+    # Block 1
+    x = KL.Conv2D(64, (3, 3),
+                      activation='relu',
+                      padding='same',
+                      name='block1_conv1')(input_image)
+    x = KL.Conv2D(64, (3, 3),
+                      activation='relu',
+                      padding='same',
+                      name='block1_conv2')(x)
+    C1 = x = KL.MaxPooling2D((2, 2), strides=(2, 2), name='block1_pool')(x)
+
+    # Block 2
+    x = KL.Conv2D(128, (3, 3),
+                      activation='relu',
+                      padding='same',
+                      name='block2_conv1')(x)
+    x = KL.Conv2D(128, (3, 3),
+                      activation='relu',
+                      padding='same',
+                      name='block2_conv2')(x)
+    C2 = x = KL.MaxPooling2D((2, 2), strides=(2, 2), name='block2_pool')(x)
+
+    # Block 3
+    x = KL.Conv2D(256, (3, 3),
+                      activation='relu',
+                      padding='same',
+                      name='block3_conv1')(x)
+    x = KL.Conv2D(256, (3, 3),
+                      activation='relu',
+                      padding='same',
+                      name='block3_conv2')(x)
+    x = KL.Conv2D(256, (3, 3),
+                      activation='relu',
+                      padding='same',
+                      name='block3_conv3')(x)
+    C3 = x = KL.MaxPooling2D((2, 2), strides=(2, 2), name='block3_pool')(x)
+
+    # Block 4
+    x = KL.Conv2D(512, (3, 3),
+                      activation='relu',
+                      padding='same',
+                      name='block4_conv1')(x)
+    x = KL.Conv2D(512, (3, 3),
+                      activation='relu',
+                      padding='same',
+                      name='block4_conv2')(x)
+    x = KL.Conv2D(512, (3, 3),
+                      activation='relu',
+                      padding='same',
+                      name='block4_conv3')(x)
+    C4 = x = KL.MaxPooling2D((2, 2), strides=(2, 2), name='block4_pool')(x)
+
+    # Block 5
+    x = KL.Conv2D(512, (3, 3),
+                      activation='relu',
+                      padding='same',
+                      name='block5_conv1')(x)
+    x = KL.Conv2D(512, (3, 3),
+                      activation='relu',
+                      padding='same',
+                      name='block5_conv2')(x)
+    x = KL.Conv2D(512, (3, 3),
+                      activation='relu',
+                      padding='same',
+                      name='block5_conv3')(x)
+    C5 = x = KL.MaxPooling2D((2, 2), strides=(2, 2), name='block5_pool')(x)
+
+    # x = KL.Flatten()(x)
+    # x = KL.Dense(4096, activation='relu')(x)
+    # x = KL.Dropout(0.5)(x)
+    # x = KL.Dense(4096, activation='relu')(x)
+    # x = KL.Dropout(0.5)(x)
+    # x = KL.Dense(1000, activation='softmax')(x)
+
+    # if weights_path:
+    #     model.load_weights(weights_path)
+
+    return [C1, C2, C3, C4, C5]
+
+
+class VGG16Graph:
+    def __init__(self):
+        pass
+
+    def __call__(self, input_image, stage5=True, train_bn=False):
+        return VGG_16(input_image, stage5, train_bn, weights_path=None)
+
+class VGG16BackboneShape:
+    def __init__(self):
+        # self.strides = [2, 4, 8, 16, 32]
+        self.strides = [4, 8, 16, 32, 64]
+
+    def backbone_shapes(self, image_shape):
+        return np.array(
+            [[int(math.ceil(image_shape[0] / stride)),
+              int(math.ceil(image_shape[1] / stride))]
+             for stride in self.strides])
+
+    def __call__(self, image_shape, stage5=True, train_bn=False):
+        return self.backbone_shapes(image_shape)
+
+############################################################
 #  Resnet Graph
 ############################################################
 

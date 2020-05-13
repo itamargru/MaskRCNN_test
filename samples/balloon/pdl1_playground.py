@@ -52,10 +52,14 @@ import mrcnn.model as modellib
 
 # Path to trained weights file
 COCO_WEIGHTS_PATH = os.path.join(ROOT_DIR, "mask_rcnn_coco.h5")
+VGG16_WEIGHTS_PATH = os.path.join(ROOT_DIR, "vgg16_weights.h5")
 
 # Directory to save logs and model checkpoints, if not provided
 # through the command line argument --logs
 DEFAULT_LOGS_DIR = os.path.join(ROOT_DIR, "logs")
+
+
+
 
 ############################################################
 #  Configurations
@@ -82,7 +86,10 @@ class PDL1NetConfig(Config):
     # Skip detections with < 90% confidence
     DETECTION_MIN_CONFIDENCE = 0.9
 
-    BACKBONE = "resnet50"
+    BACKBONE = modellib.VGG16Graph()
+    # BACKBONE = "resnet50"
+
+    COMPUTE_BACKBONE_SHAPE = modellib.VGG16BackboneShape()
 
 
 ############################################################
@@ -215,13 +222,6 @@ class PDL1NetDataset(utils.Dataset):
 
         # Return mask, and array of class IDs of each instance. Since we have
         # one class ID only, we return an array of 1s
-        for i in np.arange(mask.shape[2]):
-            mask_copy = mask.copy()
-            current_mask = mask_copy[:,:,i]
-            current_mask[ current_mask == 1 ] = 255
-            dir_to_save = r'D:\Nati\Itamar_n_Shai\Datasets\DataSynth\occlusion_result'
-            image_path = os.path.join(dir_to_save, str(int(image_id)) + "_" + str(i) + '.png')
-            cv2.imwrite(image_path, current_mask)
 
         return mask, mask_classes
 
@@ -289,12 +289,12 @@ def train(model):
     # COCO trained weights, we don't need to train too long. Also,
     # no need to train all layers, just the heads should do it.
     print("Training network heads")
-    seq = augmenter()
+    # seq = augmenter()
     model.train(dataset_train, dataset_val,
                 learning_rate=config.LEARNING_RATE,
-                epochs=30,
+                epochs=1,
                 layers='heads',
-                augmentation=seq)
+                augmentation=None)
 
     # val_generator = mrcnn.data_generator(dataset_val, self.config, shuffle=True,
     #                                batch_size=self.config.BATCH_SIZE)
@@ -352,7 +352,7 @@ def test(model):
         list_pred_masks.append(r['masks'][:,:,pred_match_exist])
         list_gt_masks.append(gt_masks[:,:,sort_gt_as_pred])
 
-    visualize_pdl1.plot_auc_roc(matrices, threshes, positive_class_num=1)
+    visualize_pdl1.plot_roc_curve(list_gt_masks, list_pred_masks, matched_classes)
     # row_sum = np.sum(confusstion_matrix, axis=1).reshape((-1,1)) + 1e-10
     # select_row_nonzero = np.tile(row_sum,(1, row_sum.shape[0])) > 0
     # confusstion_matrix = (confusstion_matrix * select_row_nonzero) / row_sum
@@ -510,6 +510,8 @@ if __name__ == '__main__':
         # Download weights file
         if not os.path.exists(weights_path):
             utils.download_trained_weights(weights_path)
+    elif args.weights.lower() == "vgg16":
+        weights_path = VGG16_WEIGHTS_PATH
     elif args.weights.lower() == "last":
         # Find last trained weights
         weights_path = model.find_last()
@@ -521,7 +523,7 @@ if __name__ == '__main__':
 
     # Load weights
     print("Loading weights ", weights_path)
-    if args.weights.lower() == "coco":
+    if args.weights.lower() == "coco" or args.weights.lower() == "vgg16":
         # Exclude the last layers because they require a matching
         # number of classes
         model.load_weights(weights_path, by_name=True, exclude=[

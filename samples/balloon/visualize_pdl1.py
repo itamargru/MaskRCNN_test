@@ -141,15 +141,39 @@ def acumulate_confussion_matrix_multiple_thresh(matrices, threshs, num_classes, 
     return matrices, threshs
 
 import matplotlib.pyplot as plt
+from sklearn.metrics import balanced_accuracy_score, roc_curve
+def plot_roc_curve(list_gt_masks, list_pred_masks, matched_classes):
+    gt_masks = np.concatenate(list_gt_masks, axis=2)
+    gt_masks = np.transpose(gt_masks, (2, 0, 1))
+    pred_masks = np.transpose(np.concatenate(list_pred_masks, axis=2), (2, 0, 1))
+    matched_classes = np.concatenate(matched_classes)
+    num_classes = np.max(matched_classes) + 1
+    array_shape = tuple(list(gt_masks.shape) + [num_classes])
+    masks = np.zeros(array_shape, dtype=np.bool)
 
-def plot_auc_roc(matrices, threshes, positive_class_num):
-    TP =  matrices[:, positive_class_num, positive_class_num]
-    FP = np.sum(matrices[:,positive_class_num,:], axis=1) - TP
-    FN = np.sum(matrices[:, :, positive_class_num], axis=1) - TP
-    TN = np.sum(matrices, axis=(1,2)) - FP - FN + TP
+    # onehot = np.zeros(4, matched_classes.shape(0))
+    # onehot[:,][matched_classes] = 1
+    for i in np.arange(num_classes):
+        masks[matched_classes == i, :, :, i] = True
+    gt_masks = masks * np.expand_dims(gt_masks, axis=3)
+    gt_masks = gt_masks.astype(np.bool)
+    pred_masks = masks * np.expand_dims(pred_masks, axis=3)
+    pred_masks = pred_masks.astype(np.bool)
+    segs = gt_masks
+    p = pred_masks
 
-    TPR = np.flip(TP / (FN + TP))
-    FPR = np.flip(FP / (FP + TN))
-    fig, ax = plt.subplots()
-    ax.plot(FPR, TPR)
+    plt.figure(figsize=(10, 10))
+    for i in range(p.shape[-1]):
+        fpr, tpr, _ = roc_curve(segs[:, :, :, i].ravel(), p[:, :, :, i].ravel())
+
+        _p = np.round(p[:, :, :, i].ravel()).astype(np.int32)
+        bas = balanced_accuracy_score(segs[:, :, :, i].ravel(), _p)
+
+        plt.subplot(4, 4, i + 1)
+        plt.plot(fpr, tpr)
+        plt.title("Class " + str(i))
+        plt.xlabel("False positive rate")
+        plt.ylabel("True positive rate")
+
+    plt.tight_layout()
     plt.show()
