@@ -575,6 +575,29 @@ def unmold_mask(mask, bbox, image_shape):
     full_mask[y1:y2, x1:x2] = mask
     return full_mask
 
+def resize_mask_pred(mask, bbox, image_shape, is_BK):
+    """
+    mask: [height, width] of type float. A small, typically 28x28 mask.
+    bbox: [y1, x1, y2, x2]. The box to fit the mask in.
+
+    Returns in the bbox the probability to belong to the mask class, outside of it 1/0 depending on whether this mask
+    belongs to BK (see below detailed explanation)
+    """
+    y1, x1, y2, x2 = bbox
+    mask = resize(mask, (y2 - y1, x2 - x1))
+
+    # Put the mask in the right location.
+    # if the given mask belongs to BK classes every pixel out of the bbox is BK with prob' 1
+    # otherwise the mask doesn't belong to BK therefore the pixels out of the
+    # bbox have 0 prob' to be part of this mask class
+    if not is_BK:
+        full_mask = np.zeros(image_shape[:2])
+    else:
+        full_mask = np.ones(image_shape[:2])
+
+    full_mask[y1:y2, x1:x2] = mask
+    return full_mask
+
 
 ############################################################
 #  Anchors

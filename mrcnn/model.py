@@ -2689,6 +2689,7 @@ class MaskRCNN():
         class_ids = detections[:N, 4].astype(np.int32)
         scores = detections[:N, 5]
         masks = mrcnn_mask[np.arange(N), :, :, class_ids]
+        all_masks = mrcnn_mask[np.arange(N), :, :, :]
 
         # Translate normalized coordinates in the resized image to pixel
         # coordinates in the original image before resizing
@@ -2723,7 +2724,22 @@ class MaskRCNN():
         full_masks = np.stack(full_masks, axis=-1)\
             if full_masks else np.empty(original_image_shape[:2] + (0,))
 
-        return boxes, class_ids, scores, full_masks
+        full_all_masks = []
+        for i in range(N):
+            all_masks_classes = []
+            # Convert neural network mask to full size mask
+            for j in range(all_masks.shape[3]):
+                is_BK = False if j > 0 else True
+                all_masks_classes += [utils.resize_mask_pred(all_masks[i,:,:,j], boxes[i], original_image_shape, is_BK)]
+            # combine all classes into one mask with multiple channels
+            all_masks_classes = np.stack(all_masks_classes, axis=-1)
+            # normlize each pixel s.t it represents probability (e.g sums to 1)
+            all_masks_classes = all_masks_classes / np.expand_dims(np.sum(all_masks_classes, axis=-1), axis=2)
+            full_all_masks.append(all_masks_classes)
+
+        full_all_masks = np.stack(full_all_masks, axis=-1)\
+            if full_all_masks else np.empty(original_image_shape[:2] + (0,))
+        return boxes, class_ids, scores, full_masks, full_all_masks
 
     def detect(self, images, verbose=0):
         """Runs the detection pipeline.
@@ -2737,8 +2753,7 @@ class MaskRCNN():
         masks: [H, W, N] instance binary masks
         """
         assert self.mode == "inference", "Create model in inference mode."
-        assert len(
-            images) == self.config.BATCH_SIZE, "len(images) must be equal to BATCH_SIZE"
+        assert len(images) == self.config.BATCH_SIZE, "len(images) must be equal to BATCH_SIZE"
 
         if verbose:
             log("Processing {} images".format(len(images)))
@@ -2771,7 +2786,7 @@ class MaskRCNN():
         # Process detections
         results = []
         for i, image in enumerate(images):
-            final_rois, final_class_ids, final_scores, final_masks =\
+            final_rois, final_class_ids, final_scores, final_masks, masks_pred =\
                 self.unmold_detections(detections[i], mrcnn_mask[i],
                                        image.shape, molded_images[i].shape,
                                        windows[i])
@@ -2780,6 +2795,7 @@ class MaskRCNN():
                 "class_ids": final_class_ids,
                 "scores": final_scores,
                 "masks": final_masks,
+                "masks_pred": masks_pred
             })
         return results
 
@@ -2829,7 +2845,7 @@ class MaskRCNN():
         results = []
         for i, image in enumerate(molded_images):
             window = [0, 0, image.shape[0], image.shape[1]]
-            final_rois, final_class_ids, final_scores, final_masks =\
+            final_rois, final_class_ids, final_scores, final_masks, _=\
                 self.unmold_detections(detections[i], mrcnn_mask[i],
                                        image.shape, molded_images[i].shape,
                                        window)
