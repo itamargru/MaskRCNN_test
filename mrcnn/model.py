@@ -79,17 +79,158 @@ def compute_backbone_shapes(config, image_shape):
 
     # Currently supports ResNet only
     assert config.BACKBONE in ["resnet50", "resnet101"]
-    return np.array(
+    shapes = np.array(
         [[int(math.ceil(image_shape[0] / stride)),
             int(math.ceil(image_shape[1] / stride))]
             for stride in config.BACKBONE_STRIDES])
+    # print('=====>>>> shapes = {}'.format(shapes))
+    return shapes
 
 
 ############################################################
 #  VGG-16 Graph
 ############################################################
+#debug
 
+import warnings
+def _obtain_input_shape(input_shape,
+                        default_size,
+                        min_size,
+                        data_format,
+                        require_flatten,
+                        weights=None):
+    """Internal utility to compute/validate a model's input shape.
+    # Arguments
+        input_shape: Either None (will return the default network input shape),
+            or a user-provided shape to be validated.
+        default_size: Default input width/height for the model.
+        min_size: Minimum input width/height accepted by the model.
+        data_format: Image data format to use.
+        require_flatten: Whether the model is expected to
+            be linked to a classifier via a Flatten layer.
+        weights: One of `None` (random initialization)
+            or 'imagenet' (pre-training on ImageNet).
+            If weights='imagenet' input channels must be equal to 3.
+    # Returns
+        An integer shape tuple (may include None entries).
+    # Raises
+        ValueError: In case of invalid argument values.
+    """
+    if weights != 'imagenet' and input_shape and len(input_shape) == 3:
+        if data_format == 'channels_first':
+            if input_shape[0] not in {1, 3}:
+                warnings.warn(
+                    'This model usually expects 1 or 3 input channels. '
+                    'However, it was passed an input_shape with ' +
+                    str(input_shape[0]) + ' input channels.')
+            default_shape = (input_shape[0], default_size, default_size)
+        else:
+            if input_shape[-1] not in {1, 3}:
+                warnings.warn(
+                    'This model usually expects 1 or 3 input channels. '
+                    'However, it was passed an input_shape with ' +
+                    str(input_shape[-1]) + ' input channels.')
+            default_shape = (default_size, default_size, input_shape[-1])
+    else:
+        if data_format == 'channels_first':
+            default_shape = (3, default_size, default_size)
+        else:
+            default_shape = (default_size, default_size, 3)
+    if weights == 'imagenet' and require_flatten:
+        if input_shape is not None:
+            if input_shape != default_shape:
+                raise ValueError('When setting `include_top=True` '
+                                 'and loading `imagenet` weights, '
+                                 '`input_shape` should be ' +
+                                 str(default_shape) + '.')
+        return default_shape
+    if input_shape:
+        if data_format == 'channels_first':
+            if input_shape is not None:
+                if len(input_shape) != 3:
+                    raise ValueError(
+                        '`input_shape` must be a tuple of three integers.')
+                if input_shape[0] != 3 and weights == 'imagenet':
+                    raise ValueError('The input must have 3 channels; got '
+                                     '`input_shape=' + str(input_shape) + '`')
+                if ((input_shape[1] is not None and input_shape[1] < min_size) or
+                   (input_shape[2] is not None and input_shape[2] < min_size)):
+                    raise ValueError('Input size must be at least ' +
+                                     str(min_size) + 'x' + str(min_size) +
+                                     '; got `input_shape=' +
+                                     str(input_shape) + '`')
+        else:
+            if input_shape is not None:
+                if len(input_shape) != 3:
+                    raise ValueError(
+                        '`input_shape` must be a tuple of three integers.')
+                if input_shape[-1] != 3 and weights == 'imagenet':
+                    raise ValueError('The input must have 3 channels; got '
+                                     '`input_shape=' + str(input_shape) + '`')
+                if ((input_shape[0] is not None and input_shape[0] < min_size) or
+                   (input_shape[1] is not None and input_shape[1] < min_size)):
+                    raise ValueError('Input size must be at least ' +
+                                     str(min_size) + 'x' + str(min_size) +
+                                     '; got `input_shape=' +
+                                     str(input_shape) + '`')
+    else:
+        if require_flatten:
+            input_shape = default_shape
+        else:
+            if data_format == 'channels_first':
+                input_shape = (3, None, None)
+            else:
+                input_shape = (None, None, 3)
+    if require_flatten:
+        if None in input_shape:
+            raise ValueError('If `include_top` is True, '
+                             'you should specify a static `input_shape`. '
+                             'Got `input_shape=' + str(input_shape) + '`')
+    return input_shape
+
+#
 def VGG_16(input_image, architecture, stage5=False, train_bn=True, weights_path=None):
+    #debug
+
+    include_top = True,
+    weights = 'imagenet'
+    input_tensor = None
+    input_shape = None
+    pooling = None
+    classes = 1000
+
+    backend = K
+    layers = KL
+    #backend, layers, models, keras_utils = get_submodules_from_kwargs(kwargs)
+
+    if not (weights in {'imagenet', None} or os.path.exists(weights)):
+        raise ValueError('The `weights` argument should be either '
+                         '`None` (random initialization), `imagenet` '
+                         '(pre-training on ImageNet), '
+                         'or the path to the weights file to be loaded.')
+
+    if weights == 'imagenet' and include_top and classes != 1000:
+        raise ValueError('If using `weights` as `"imagenet"` with `include_top`'
+                         ' as true, `classes` should be 1000')
+    # Determine proper input shape
+    input_shape = _obtain_input_shape(input_shape,
+                                      default_size=224,
+                                      min_size=32,
+                                      data_format=backend.image_data_format(),
+                                      require_flatten=include_top,
+                                      weights=weights)
+
+    if input_tensor is None:
+        img_input = layers.Input(shape=input_shape)
+    else:
+        if not backend.is_keras_tensor(input_tensor):
+            img_input = layers.Input(tensor=input_tensor, shape=input_shape)
+        else:
+            img_input = input_tensor
+
+    #debug-end
+
+
     # Block 1
     x = KL.Conv2D(64, (3, 3),
                       activation='relu',
@@ -157,16 +298,6 @@ def VGG_16(input_image, architecture, stage5=False, train_bn=True, weights_path=
                       name='block5_conv3')(x)
     C5 = x = KL.MaxPooling2D((2, 2), strides=(2, 2), name='block5_pool')(x)
 
-    # x = KL.Flatten()(x)
-    # x = KL.Dense(4096, activation='relu')(x)
-    # x = KL.Dropout(0.5)(x)
-    # x = KL.Dense(4096, activation='relu')(x)
-    # x = KL.Dropout(0.5)(x)
-    # x = KL.Dense(1000, activation='softmax')(x)
-
-    # if weights_path:
-    #     model.load_weights(weights_path)
-
     return [C1, C2, C3, C4, C5]
 
 
@@ -183,10 +314,12 @@ class VGG16BackboneShape:
         self.strides = [4, 8, 16, 32, 64]
 
     def backbone_shapes(self, image_shape):
-        return np.array(
+        shapes = np.array(
             [[int(math.ceil(image_shape[0] / stride)),
               int(math.ceil(image_shape[1] / stride))]
              for stride in self.strides])
+        # print('======>>>> shapes = {}'.format(shapes))
+        return shapes
 
     def __call__(self, image_shape, stage5=True, train_bn=False):
         return self.backbone_shapes(image_shape)
@@ -2011,6 +2144,7 @@ class MaskRCNN():
         else:
             _, C2, C3, C4, C5 = resnet_graph(input_image, config.BACKBONE,
                                              stage5=True, train_bn=config.TRAIN_BN)
+        # print('======>>>> image_data_format={}'.format(K.image_data_format()))
         # Top-down Layers
         # TODO: add assert to varify feature map sizes match what's in config
         P5 = KL.Conv2D(config.TOP_DOWN_PYRAMID_SIZE, (1, 1), name='fpn_c5p5')(C5)

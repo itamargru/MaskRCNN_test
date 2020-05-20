@@ -86,10 +86,10 @@ class PDL1NetConfig(Config):
     # Skip detections with < 90% confidence
     DETECTION_MIN_CONFIDENCE = 0.9
 
-    BACKBONE = modellib.VGG16Graph()
-    # BACKBONE = "resnet50"
+    # BACKBONE = modellib.VGG16Graph()
+    BACKBONE = "resnet50"
 
-    COMPUTE_BACKBONE_SHAPE = modellib.VGG16BackboneShape()
+    # COMPUTE_BACKBONE_SHAPE = modellib.VGG16BackboneShape()
 
 
 ############################################################
