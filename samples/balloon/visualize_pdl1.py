@@ -143,22 +143,32 @@ def acumulate_confussion_matrix_multiple_thresh(matrices, threshs, num_classes, 
 import matplotlib.pyplot as plt
 from sklearn.metrics import balanced_accuracy_score, roc_curve
 def plot_roc_curve(list_gt_masks, list_pred_masks, matched_classes):
+    """
+
+    N = len(list_gt_masks) - number of images
+    Mi = number of segments in the i'th image
+    M = for i in [1...N] M += Mi
+    :param list_gt_masks: list of ground truth masks each of shape [Height, Width, Mi]
+    :param list_pred_masks: list of predicted masks each of shape [Height, Width, Mi]
+    :param matched_classes: the element i is the class of the i'th masks
+    :return:
+    """
     gt_masks = np.concatenate(list_gt_masks, axis=2)
     gt_masks = np.transpose(gt_masks, (2, 0, 1))
-    pred_masks = np.transpose(np.concatenate(list_pred_masks, axis=2), (2, 0, 1))
+    pred_masks = np.transpose(np.concatenate(list_pred_masks, axis=3), (3, 0, 1, 2))
     matched_classes = np.concatenate(matched_classes)
-    num_classes = np.max(matched_classes) + 1
+    num_classes = 5#np.max(matched_classes) + 1
+
     array_shape = tuple(list(gt_masks.shape) + [num_classes])
     masks = np.zeros(array_shape, dtype=np.bool)
 
-    # onehot = np.zeros(4, matched_classes.shape(0))
-    # onehot[:,][matched_classes] = 1
+    # gt_masks make into shape [M, height, width, classes]
     for i in np.arange(num_classes):
         masks[matched_classes == i, :, :, i] = True
-    gt_masks = masks * np.expand_dims(gt_masks, axis=3)
+    gt_masks = masks * np.expand_dims(gt_masks, axis=-1)
     gt_masks = gt_masks.astype(np.bool)
-    pred_masks = masks * np.expand_dims(pred_masks, axis=3)
-    pred_masks = pred_masks.astype(np.bool)
+    # pred_masks = masks * np.expand_dims(pred_masks, axis=3)
+    # pred_masks = pred_masks.astype(np.bool)
     segs = gt_masks
     p = pred_masks
 
@@ -177,3 +187,72 @@ def plot_roc_curve(list_gt_masks, list_pred_masks, matched_classes):
 
     plt.tight_layout()
     plt.show()
+
+
+def collect_roc_data(list_gt_masks, list_pred_masks, matched_classes):
+    """
+
+    N = len(list_gt_masks) - number of images
+    Mi = number of segments in the i'th image
+    M = for i in [1...N] M += Mi
+    :param list_gt_masks: list of ground truth masks each of shape [Height, Width, Mi]
+    :param list_pred_masks: list of predicted masks each of shape [Height, Width, Mi]
+    :param matched_classes: the element i is the class of the i'th masks
+    :return:
+    """
+    gt_masks = np.concatenate(list_gt_masks, axis=2)
+    gt_masks = np.transpose(gt_masks, (2, 0, 1))
+    pred_masks = np.transpose(np.concatenate(list_pred_masks, axis=3), (3, 0, 1, 2))
+    matched_classes = np.concatenate(matched_classes)
+    num_classes = 5#np.max(matched_classes) + 1
+
+    array_shape = tuple(list(gt_masks.shape) + [num_classes])
+    masks = np.zeros(array_shape, dtype=np.bool)
+
+    # gt_masks make into shape [M, height, width, classes]
+    for i in np.arange(num_classes):
+        masks[matched_classes == i, :, :, i] = True
+    gt_masks = masks * np.expand_dims(gt_masks, axis=-1)
+    gt_masks = gt_masks.astype(np.bool)
+    # pred_masks = masks * np.expand_dims(pred_masks, axis=3)
+    # pred_masks = pred_masks.astype(np.bool)
+    segs = gt_masks
+    p = pred_masks
+
+    fpr_list = []
+    tpr_list = []
+    for i in range(p.shape[-1]):
+        fpr, tpr, _ = roc_curve(segs[:, :, :, i].ravel(), p[:, :, :, i].ravel())
+        fpr_list += [fpr]
+        tpr_list += [tpr]
+
+    fpr = np.stack(fpr_list, axis=-1)
+    tpr = np.stack(tpr_list, axis=-1)
+    return fpr, tpr
+
+def get_IoU_from_matches(match_pred2gt, matched_classes, ovelaps):
+    """
+    if given an image, claculate the IoU of the segments in the image
+    :param match_pred2gt: maps index of predicted segment to index of ground truth segment
+    :param matched_classes: maps index of predicted segment to class number
+    :param ovelaps: maps [predicted segment index, gt segment index] to the IoU value of the segments
+    :return:
+        1. IoUs - IoU for all segments
+        2. IoUs_classes - mean IoU per class
+    """
+    IoUs = [ [] for _ in range(5) ]
+    match_pred2gt = match_pred2gt.astype(np.int32)
+    for pred, gt in enumerate(match_pred2gt):
+        if gt < 0:
+            continue
+        IoUs[matched_classes[pred]].append(ovelaps[pred, gt])
+
+    # mean segments's IoU according to classes
+    IoUs_classes = np.zeros((5, 1))
+    for class_idx, lst in enumerate(IoUs):
+        if not lst:
+            continue
+        arr = np.array(lst)
+        IoUs_classes[class_idx] = (np.mean(arr))
+
+    return IoUs, IoUs_classes

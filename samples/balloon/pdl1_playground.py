@@ -314,15 +314,18 @@ def test(model):
 
     print("start test")
     inference_config = InferenceConfig()
-    list_pred_masks = []
-    list_gt_masks = []
+    list_false_p_rate = []
+    list_true_p_rate = []
     matched_classes = []
     APs = []
     NUM_THRESH = 11
     threshes = np.linspace(0,1,NUM_THRESH)
     matrices = np.zeros((NUM_THRESH, dataset_val.num_classes, dataset_val.num_classes))
     confusstion_matrix = np.zeros((dataset_val.num_classes, dataset_val.num_classes))
-    for image_id in [0]: # np.arange(dataset_val.num_images):
+
+    IoUs, IoU_classes = ([[] for _ in range(5)], [])
+
+    for image_id in [0, 1, 2]:  # np.arange(dataset_val.num_images):
         # Load image and ground truth data
         image_name = dataset_val.image_info[image_id]['id']
         image, image_meta, gt_class_ids, gt_bboxes, gt_masks = \
@@ -336,6 +339,10 @@ def test(model):
         gt_match, pred_match, overlaps = utils.compute_matches(gt_bboxes, gt_class_ids, gt_masks,
                                                             r["rois"], r["class_ids"], r["scores"], r['masks'],
                                                             iou_threshold=0.5, score_threshold=0.0)
+        IoUs_image, IoU_classes_image = visualize_pdl1.get_IoU_from_matches(pred_match, r["class_ids"], overlaps)
+        for i in range(len(IoUs_image)):
+            IoUs[i] += IoUs_image[i]
+        IoU_classes += [IoU_classes_image]
 
         matrices, threshes = visualize_pdl1.acumulate_confussion_matrix_multiple_thresh(matrices, threshes, 4,
                                                                                         gt_class_ids,
@@ -349,18 +356,31 @@ def test(model):
         #  retrieve the index of the GT element at the position of the correlated element in prediction
         sort_gt_as_pred = pred_match[pred_match_exist].astype(int)
         matched_classes.append(r["class_ids"][pred_match_exist])
-        list_pred_masks.append(r['masks'][:,:,pred_match_exist])
-        list_gt_masks.append(gt_masks[:,:,sort_gt_as_pred])
 
-    visualize_pdl1.plot_roc_curve(list_gt_masks, list_pred_masks, matched_classes)
-    # row_sum = np.sum(confusstion_matrix, axis=1).reshape((-1,1)) + 1e-10
-    # select_row_nonzero = np.tile(row_sum,(1, row_sum.shape[0])) > 0
-    # confusstion_matrix = (confusstion_matrix * select_row_nonzero) / row_sum
-    from sklearn.metrics import roc_curve
-    a = roc_curve(np.array([0,1]), np.array([0,1]))
-    num_classes = inference_config.NUM_CLASSES - 1
-    IoU = visualize_pdl1.compute_batch_iou(num_classes, list_pred_masks, list_gt_masks, matched_classes)
-    print(IoU)
+        # pred_masks = [r['masks_pred'][:,:,:,pred_match_exist]]
+        # masks_pred = [r['masks_pred'][:, :, :, pred_match_exist]]
+        # gt_masks = [gt_masks[:,:,sort_gt_as_pred]]
+        # fpr, tpr = visualize_pdl1.collect_roc_data(gt_masks, pred_masks, matched_classes)
+        # list_false_p_rate += [fpr]
+        # list_true_p_rate += [tpr]
+
+    mean_IoU_per_image_per_class = np.zeros((5, 1))
+    IoU_classes = np.stack(IoU_classes).reshape(-1, 5)
+    for i in range(IoU_classes.shape[1]):
+        if not any(IoU_classes[:, i] != 0):
+            continue
+        mean_IoU_per_image_per_class[i] = IoU_classes[IoU_classes[:, i] != 0, i].mean()
+    # mean_IoU_per_image_per_seg = np.mean(IoU_classes, axis=0)
+    mean_IoUs_per_seg = np.zeros((len(IoUs), 1))
+    for i in range(len(IoUs)):
+        if not IoUs[i]:
+            continue
+        IoUs[i] = np.array(IoUs[i])
+        mean_IoUs_per_seg[i] = np.mean(IoUs[i])
+
+    print(f"IoU over segments is {mean_IoUs_per_seg}")
+    print(f"IoU over images is {mean_IoU_per_image_per_class}")
+
     print("the confusion matrix is:\n {}".format(confusstion_matrix))
     # create new class list to replace the 'BG' with 'other'
     right_indices = [4, 1, 2, 3]
