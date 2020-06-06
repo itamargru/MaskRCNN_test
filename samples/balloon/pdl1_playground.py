@@ -33,6 +33,7 @@ import json
 import datetime
 import numpy as np
 import skimage.draw
+import math
 import cv2
 
 # Root directory of the project
@@ -323,9 +324,10 @@ def test(model):
     matrices = np.zeros((NUM_THRESH, dataset_val.num_classes, dataset_val.num_classes))
     confusstion_matrix = np.zeros((dataset_val.num_classes, dataset_val.num_classes))
 
+    score_accuracy = []
     IoUs, IoU_classes = ([[] for _ in range(5)], [])
 
-    for image_id in [0, 1, 2]:  # np.arange(dataset_val.num_images):
+    for image_id in np.arange(dataset_val.num_images):
         # Load image and ground truth data
         image_name = dataset_val.image_info[image_id]['id']
         image, image_meta, gt_class_ids, gt_bboxes, gt_masks = \
@@ -357,12 +359,9 @@ def test(model):
         sort_gt_as_pred = pred_match[pred_match_exist].astype(int)
         matched_classes.append(r["class_ids"][pred_match_exist])
 
-        # pred_masks = [r['masks_pred'][:,:,:,pred_match_exist]]
-        # masks_pred = [r['masks_pred'][:, :, :, pred_match_exist]]
-        # gt_masks = [gt_masks[:,:,sort_gt_as_pred]]
-        # fpr, tpr = visualize_pdl1.collect_roc_data(gt_masks, pred_masks, matched_classes)
-        # list_false_p_rate += [fpr]
-        # list_true_p_rate += [tpr]
+        score = visualize_pdl1.score_almost_metric(gt_masks, gt_class_ids, r['masks'], r['class_ids'])
+        if not math.isnan(score):
+            score_accuracy += [score]
 
     mean_IoU_per_image_per_class = np.zeros((5, 1))
     IoU_classes = np.stack(IoU_classes).reshape(-1, 5)
@@ -378,10 +377,13 @@ def test(model):
         IoUs[i] = np.array(IoUs[i])
         mean_IoUs_per_seg[i] = np.mean(IoUs[i])
 
+    print(f'accuracy:\n{score_accuracy}')
     print(f"IoU over segments is {mean_IoUs_per_seg}")
     print(f"IoU over images is {mean_IoU_per_image_per_class}")
 
     print("the confusion matrix is:\n {}".format(confusstion_matrix))
+
+    visualize_pdl1.plot_hist(score_accuracy)
     # create new class list to replace the 'BG' with 'other'
     right_indices = [4, 1, 2, 3]
     copy_class_names = [dataset_val.class_names[i] for i in right_indices]

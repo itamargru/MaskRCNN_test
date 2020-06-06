@@ -1,4 +1,5 @@
 
+import math
 import numpy as np
 import mrcnn.utils as utils
 import matplotlib.pyplot as plt
@@ -256,3 +257,38 @@ def get_IoU_from_matches(match_pred2gt, matched_classes, ovelaps):
         IoUs_classes[class_idx] = (np.mean(arr))
 
     return IoUs, IoUs_classes
+
+def score_area(masks_positive, masks_negative):
+    """
+
+    :param masks_positive: ndarray [NxHxW] N number of positive segments
+    :param masks_negative: ndarray [NxHxW] N number of negative segments
+    :return:
+    """
+    positive_area = np.sum((masks_positive > 0).ravel())
+    negative_area = np.sum((masks_negative > 0).ravel())
+    if positive_area == 0 and negative_area == 0:
+        return math.nan
+    score = positive_area / (positive_area + negative_area)
+    return score
+
+def score_almost_metric(gt_masks, gt_classes, pred_masks, pred_classes):
+    gt_positive_masks = gt_masks[..., gt_classes == 3]
+    gt_negative_masks = gt_masks[..., gt_classes == 2]
+    score_gt = score_area(gt_positive_masks, gt_negative_masks)
+    pred_positive_masks = pred_masks[..., pred_classes == 3]
+    pred_negative_masks = pred_masks[..., pred_classes == 2]
+    score_pred = score_area(pred_positive_masks, pred_negative_masks)
+    if math.isnan(score_gt):
+        diff = score_pred
+    elif math.isnan(score_pred):
+        diff = -score_gt
+    elif math.isnan(score_gt) and math.isnan(score_pred):
+        diff = math.nan
+    else:
+        diff = score_pred - score_gt
+    return diff
+
+def plot_hist(data):
+    plt.hist(data)
+    plt.show()
