@@ -1492,16 +1492,17 @@ def load_image_gt(dataset, config, image_id, augment=False, augmentation=None,
         image = det.augment_image(image)
         # Change mask to np.uint8 because imgaug doesn't support np.bool
         # augMasks = [SegmentationMapOnImage(mask[:,:,i], shape=image_shape) for i in np.arange(mask.shape[2])]
-        augMasks = SegmentationMapsOnImage(mask, shape=image_shape)
-        augMasks = det.augment_segmentation_maps(augMasks, hooks=imgaug.HooksImages(activator=hook))
-        # augMasks = [s.get_arr() for s in augMasks]
-        mask = augMasks.get_arr()
+        for mask_num in range(mask.shape[2]):
+            augMasks = SegmentationMapsOnImage(mask[:,:,mask_num], shape=image_shape)
+            augMasks = det.augment_segmentation_maps(augMasks)#, hooks=imgaug.HooksImages(activator=hook))
+            # augMasks = [s.get_arr() for s in augMasks]
+            mask[:,:,mask_num] = augMasks.get_arr().astype(np.bool)
         # mask = det.augment_image(mask.astype(np.uint8), hooks=imgaug.HooksImages(activator=hook))
         # Verify that shapes didn't change
         assert image.shape == image_shape, "Augmentation shouldn't change image size"
         assert mask.shape == mask_shape, "Augmentation shouldn't change mask size"
         # Change mask back to bool
-        mask = mask.astype(np.bool)
+        # mask = mask.astype(np.bool)
 
     # Note that some boxes might be all zeros if the corresponding mask got cropped out.
     # and here is to filter them out

@@ -84,6 +84,9 @@ class PDL1NetConfig(Config):
     # Number of training steps per epoch
     STEPS_PER_EPOCH = 100
 
+    # Number of epochs in train
+    EPOCH_NUM = 50
+
     # Skip detections with < 90% confidence
     DETECTION_MIN_CONFIDENCE = 0.9
 
@@ -138,21 +141,23 @@ class PDL1NetDataset(utils.Dataset):
         # TODO: make sure the json has the right name
         # ATTENTION! the parser will work only for via POLYGON segmented regions
         # annotations = json.load(open(os.path.join(dataset_dir, "train_synth_via_json.json")))
-        annotations = json.load(open(os.path.join(dataset_dir, "via_export_json.json")))
+        json_dir = os.path.join(dataset_dir, "..", "..", "via_export_json.json")
+        annotations = json.load(open(json_dir))
         annotations = list(annotations.values())  # don't need the dict keys
 
         # The VIA tool saves images in the JSON even if they don't have any
         # annotations. Skip unannotated images.
         annotations = [a for a in annotations if a['regions']]
-        # type2class = {"1":"inflammation", "2":"negative", "3":"positive", "4":"other"}
-        type2class = {"inf": "inflammation", "neg": "negative", "pos": "positive", "other": "other"}
+        type2class = {"1":"inflammation", "2":"negative", "3":"positive", "4":"other"} #yael's data
+        # type2class = {"inf": "inflammation", "neg": "negative", "pos": "positive", "other": "other"} #synthetic's data
         # Add images
         for a in annotations:
             # Get the x, y coordinaets of points of the polygons that make up
             # the outline of each object instance. There are stores in the
             # shape_attributes (see json format above)
             polygons = [r['shape_attributes'] for r in a['regions']]
-            classes = [r['region_attributes']['category'] for r in a['regions']]  # validate that a list of classes is obtained
+            # classes = [r['region_attributes']['category'] for r in a['regions']]  # validate that a list of classes is obtained
+            classes = [r['region_attributes']['type'] for r in a['regions']]  # 'category' for synthetic data,  'type' for yael's data
             classes = [type2class[c] for c in classes]
 
             # load_mask() needs the image size to convert polygons to masks.
@@ -189,12 +194,14 @@ class PDL1NetDataset(utils.Dataset):
         # TODO: make sure no intersection are made between polygons
         for i, p in enumerate(info["polygons"]):
             # Get indexes of pixels inside the polygon and set them to 1
+            if 'all_points_y' not in p.keys() or 'all_points_x' not in p.keys():
+                continue
             if p['all_points_y'] is None or p['all_points_x'] is None:
                 continue
             #  check if an element in the list is also a list
             if any(isinstance(elem, list) for elem in p['all_points_y']) or any(isinstance(elem, list) for elem in p['all_points_x']):
                 continue
-            rr, cc = skimage.draw.polygon(p['all_points_y'], p['all_points_x'])
+            rr, cc = skimage.draw.polygon(p['all_points_y'], p['all_points_x'], (info["height"], info["width"]))
             mask[rr, cc, i] = 1
         # mask_classes = [self.class_name2id[name] for name in self.class_names]
         mask_classes = [self.class_name2id[name] for name in info["classes"]]
@@ -241,28 +248,28 @@ import matplotlib.pyplot as plt
 
 def augmenter():
     seq = iaa.Sequential([
-    iaa.Fliplr(0.5), # horizontal flips
-    iaa.Crop(percent=(0, 0.1)), # random crops
-    # Small gaussian blur with random sigma between 0 and 0.5.
-    # But we only blur about 50% of all images.
-    iaa.Sometimes(
-        0.5,
-        iaa.GaussianBlur(sigma=(0, 0.5))
-    ),
-    # Strengthen or weaken the contrast in each image.
-    iaa.LinearContrast((0.75, 1.5)),
-    # Add gaussian noise.
-    # For 50% of all images, we sample the noise once per pixel.
-    # For the other 50% of all images, we sample the noise per pixel AND
-    # channel. This can change the color (not only brightness) of the
-    # pixels.
-    iaa.AdditiveGaussianNoise(loc=0, scale=(0.0, 0.05*255), per_channel=0.5),
-    # Make some images brighter and some darker.
-    # In 20% of all cases, we sample the multiplier once per channel,
-    # which can end up changing the color of the images.
-    iaa.Multiply((0.8, 1.2), per_channel=0.2),
-    # Apply affine transformations to each image.
-    # Scale/zoom them, translate/move them, rotate them and shear them.
+    # iaa.Fliplr(0.5), # horizontal flips
+    # # iaa.Crop(percent=(0, 0.1)), # random crops
+    # # Small gaussian blur with random sigma between 0 and 0.5.
+    # # But we only blur about 50% of all images.
+    # iaa.Sometimes(
+    #     0.5,
+    #     iaa.GaussianBlur(sigma=(0, 0.5))
+    # ),
+    # # Strengthen or weaken the contrast in each image.
+    # iaa.LinearContrast((0.75, 1.5)),
+    # # Add gaussian noise.
+    # # For 50% of all images, we sample the noise once per pixel.
+    # # For the other 50% of all images, we sample the noise per pixel AND
+    # # channel. This can change the color (not only brightness) of the
+    # # pixels.
+    # iaa.AdditiveGaussianNoise(loc=0, scale=(0.0, 0.05*255), per_channel=0.5),
+    # # Make some images brighter and some darker.
+    # # In 20% of all cases, we sample the multiplier once per channel,
+    # # which can end up changing the color of the images.
+    # iaa.Multiply((0.8, 1.2), per_channel=0.2)
+    # # Apply affine transformations to each image.
+    # # Scale/zoom them, translate/move them, rotate them and shear them.
     iaa.Affine(
         scale={"x": (0.8, 1.2), "y": (0.8, 1.2)},
         translate_percent={"x": (-0.2, 0.2), "y": (-0.2, 0.2)},
@@ -290,12 +297,12 @@ def train(model):
     # COCO trained weights, we don't need to train too long. Also,
     # no need to train all layers, just the heads should do it.
     print("Training network heads")
-    # seq = augmenter()
+    seq = augmenter()
     model.train(dataset_train, dataset_val,
                 learning_rate=config.LEARNING_RATE,
-                epochs=1,
+                epochs=config.EPOCH_NUM,
                 layers='heads',
-                augmentation=None)
+                augmentation=seq)
 
     # val_generator = mrcnn.data_generator(dataset_val, self.config, shuffle=True,
     #                                batch_size=self.config.BATCH_SIZE)
