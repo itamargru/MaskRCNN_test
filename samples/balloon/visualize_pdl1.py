@@ -2,7 +2,17 @@
 import math
 import numpy as np
 import mrcnn.utils as utils
+import matplotlib as mpl
+from matplotlib import cm
+import os
+import tensorflow as tf
 import matplotlib.pyplot as plt
+import sys
+
+sys.path.append(os.path.join("..", "..", "mrcnn"))
+
+import visualize as vis
+result_dir = os.path.join(r"D:\Nati\Itamar_n_Shai\Mask_RCNN", "output")
 
 # TODO: create function in Tester that compute the inputs for this function
 def compute_batch_iou(num_classes, list_pred_masks, list_gt_masks, matched_classes):
@@ -18,7 +28,7 @@ def compute_batch_iou(num_classes, list_pred_masks, list_gt_masks, matched_class
                         the prediction to the GT.
     :return IoU_mean: a numpy.ndarray of shape [num_classes+1,1], with the average IoU per class.
 
-    :assumption: the callee needs to sort the elements in the lists according to the output of utils.compute_matches
+    :assumption: the callee needs to sort the elements in the lists according to the output_IoU0_C1_BG1 of utils.compute_matches
     """
     IoU_mean = np.zeros((num_classes + 1 ,1))
     cnt_instances = np.zeros((num_classes + 1, 1))
@@ -58,16 +68,6 @@ def compute_mean_iou_per_image(num_classes, pred_masks, gt_masks, matched_classe
     class_exist = cnt_classes > 0
     return IoU_per_class, class_exist.astype(np.uint8)
 
-def plot_session(model):
-    # Get input and output to classifier and mask heads.
-    mrcnn = model.run_graph([image], [
-        ("proposals", model.keras_model.get_layer("ROI").output),
-        ("probs", model.keras_model.get_layer("mrcnn_class").output),
-        ("deltas", model.keras_model.get_layer("mrcnn_bbox").output),
-        ("masks", model.keras_model.get_layer("mrcnn_mask").output),
-        ("detections", model.keras_model.get_layer("mrcnn_detection").output),
-    ])
-    pass
 
 import itertools
 def get_confusion_matrix(num_classes, gt_class_ids, pred_class_ids, pred_scores,
@@ -103,7 +103,7 @@ def get_confusion_matrix(num_classes, gt_class_ids, pred_class_ids, pred_scores,
 
     return confusion_matrix
 
-def plot_confusion_matrix(confusion_matrix, class_names, threshold=0.5):
+def plot_confusion_matrix(confusion_matrix, class_names, threshold=0.5, savename=None):
     """Draw a grid showing how ground truth objects are classified.
     gt_class_ids: [N] int. Ground truth class IDs
     pred_class_id: [N] int. Predicted class IDs
@@ -112,10 +112,11 @@ def plot_confusion_matrix(confusion_matrix, class_names, threshold=0.5):
     class_names: list of all class names in the dataset
     threshold: Float. The prediction probability required to predict a class
     """
-    fig = plt.figure(figsize=(12, 10))
+    fontsize = 40
+    fig = plt.figure(figsize=(14, 14))
     plt.imshow(confusion_matrix, interpolation='nearest', cmap=plt.cm.Blues)
-    plt.yticks(np.arange(len(class_names)), class_names)
-    plt.xticks(np.arange(len(class_names)), class_names, rotation=90)
+    plt.yticks(np.arange(len(class_names)), class_names, rotation=45, fontsize=int(fontsize * 0.8))
+    plt.xticks(np.arange(len(class_names)), class_names, rotation=45, fontsize=int(fontsize * 0.8))
 
     thresh = confusion_matrix.max() / 2.
     for i, j in itertools.product(range(confusion_matrix.shape[0]),
@@ -123,23 +124,21 @@ def plot_confusion_matrix(confusion_matrix, class_names, threshold=0.5):
         color = ("white" if confusion_matrix[i, j] > thresh
                  else "black" if confusion_matrix[i, j] > 0
                  else "grey")
-        plt.text(j, i, "{:.3f}".format(confusion_matrix[i, j]),
+        plt.text(j, i, "{:4.2f}%".format(100 * confusion_matrix[i, j]),
                  horizontalalignment="center", verticalalignment="center",
-                 fontsize=9, color=color)
+                 fontsize=fontsize, color=color)
 
     plt.tight_layout()
-    plt.xlabel("Ground Truth")
-    plt.ylabel("Predictions")
-    plt.title("Confusion Matrix")
-    plt.show()
+    plt.xlabel("Ground Truth", fontsize=fontsize)
+    plt.ylabel("Predictions", fontsize=fontsize)
+    plt.title("Confusion Matrix", fontsize=int(fontsize * 1.4))
+    plt.tight_layout()
+    if savename is not None:
+        name = os.path.join(result_dir, savename+".png")
+        plt.savefig(name)
+    # plt.show()
     return fig
 
-def acumulate_confussion_matrix_multiple_thresh(matrices, threshs, num_classes, gt_class_ids, pred_class_ids, pred_scores,
-                  overlaps, class_names):
-    for i, thresh in enumerate(threshs):
-        matrices[i,:,:] += get_confusion_matrix(num_classes, gt_class_ids, pred_class_ids, pred_scores,
-                  overlaps, class_names, threshold=thresh)
-    return matrices, threshs
 
 import matplotlib.pyplot as plt
 from sklearn.metrics import balanced_accuracy_score, roc_curve
@@ -260,10 +259,10 @@ def get_IoU_from_matches(match_pred2gt, matched_classes, ovelaps):
 
 def score_area(masks_positive, masks_negative):
     """
-
+    calculate the score of the relative amount pdl1+ among all pdl1 cells
     :param masks_positive: ndarray [NxHxW] N number of positive segments
     :param masks_negative: ndarray [NxHxW] N number of negative segments
-    :return:
+    :return: image score = (pdl1_pos #pixels / (pdl1_pos #pixels + pdl1_neg #pixels))
     """
     positive_area = np.sum((masks_positive > 0).ravel())
     negative_area = np.sum((masks_negative > 0).ravel())
@@ -273,6 +272,17 @@ def score_area(masks_positive, masks_negative):
     return score
 
 def score_almost_metric(gt_masks, gt_classes, pred_masks, pred_classes):
+    """
+    calculate the score difference in the ground truth masks to the predited masks
+    scores are computed using score_area and the difference is between the prediction to the GT
+    hence score < 0 means that the ground truth has higher percentages of pdl1 positive
+    and score > 0 means that the prediction falsely found higher percentages of pdl1 positive in compare to the GT
+    :param gt_masks: ground truth masks - boolean ndarray
+    :param gt_classes: ground truth class label corresponds to axis 0 of gt_masks
+    :param pred_masks: predicted masks - boolean ndarray
+    :param pred_classes: predicted class label corresponds to axis 0 of pred_masks
+    :return: score of pdl1 positive ratio between the Prediction to the GT number in range [-1, 1]
+    """
     gt_positive_masks = gt_masks[..., gt_classes == 3]
     gt_negative_masks = gt_masks[..., gt_classes == 2]
     score_gt = score_area(gt_positive_masks, gt_negative_masks)
@@ -289,6 +299,101 @@ def score_almost_metric(gt_masks, gt_classes, pred_masks, pred_classes):
         diff = score_pred - score_gt
     return diff
 
-def plot_hist(data):
+import datetime
+
+def imshow_mask(image, masks, classes, remove_inflammation=False, savename=None, saveoriginal=False):
+    """
+    plots image with covered by segments colored by their class
+    :param image: ndarray [H, W] represents image
+    :param masks: boolean ndarray[N, H, W] represents each mask represents segment
+    :param classes: list of ints with length N each corresponds to a mask/ segment
+    :param remove_inflammation: if True than treats all inflammation classes as other
+    :param savename: str - name to the save the image with. The image is added with .png extension and it is saved
+        under output directory
+    :param saveoriginal: boolean - if True saves also the original untouched image
+    """
+    if any(classes):  # if classes in not empty list
+        mask = np.zeros_like(masks[:,:,0], dtype=np.uint8)
+        if remove_inflammation:
+            inflammation_num = 1
+            classes[classes == inflammation_num] = 0
+        classes = classes.reshape(1, 1, -1)
+        # for i in range(len(classes)):
+        #     mask[masks[:, :, i] is True] = (masks[:, :, i] * classes[i])[masks[:,:,i] is True]
+        masks = masks * classes
+        mask = np.max(masks, axis=2)
+        cmap = cm.rainbow
+        norm = mpl.colors.Normalize(np.amin(mask), np.amax(mask))
+
+        fig, ax = plt.subplots()
+        ax.imshow(image)
+        ax.imshow(mask, norm=norm, cmap=cmap, alpha=0.2)
+        plt.tick_params(
+            axis='both',  # changes apply to the x-axis
+            which='both',  # both major and minor ticks are affected
+            bottom=False,  # ticks along the bottom edge are off
+            top=False,  # ticks along the top edge are off
+            left=False,
+            right=False,
+            labelleft=False,
+            labelbottom=False)  # labels along the bottom edge are off
+        # file_name = "splash_{:%Y%m%dT%H%M%S}.png".format(datetime.datetime.now())
+        if savename is not None:
+            file_name = os.path.join(result_dir, "mask_"+savename+".png")
+            plt.savefig(file_name)
+        plt.close(fig)
+    # plt.show()
+    if saveoriginal:
+        fig, ax = plt.subplots()
+        ax.imshow(image)
+        plt.tick_params(
+            axis='both',  # changes apply to the x-axis
+            which='both',  # both major and minor ticks are affected
+            bottom=False,  # ticks along the bottom edge are off
+            top=False,  # ticks along the top edge are off
+            left=False,
+            right=False,
+            labelleft=False,
+            labelbottom=False)  # labels along the bottom edge are off
+        if savename is not None:
+            file_name = os.path.join(result_dir, "org_" + savename + ".png")
+            plt.savefig(file_name)
+        plt.close(fig)
+
+
+
+def plot_hist(data, savename=None):
+    """
+    plots histogram and save it
+    :param data: the data to plot
+    :param savename: str of name to save the histogram with. it is added with .png extension and it is saved under
+        output directory
+    """
     plt.hist(data)
-    plt.show()
+    if savename is not None:
+        name = os.path.join(result_dir, savename+".png")
+        plt.savefig(name)
+
+    # plt.show()
+
+
+def inspect_backbone_activation(model, image, savename=None):
+    """
+    plots the output of specific activation layer - the second block
+    :param model: TF model of the Mask-RCNN with the learned weights
+    :param image: ndarray of size [H, W] image to be fed into the model, and see the layer activation on it
+    :param savename: if str of name is given the function adds .png extension and saves the ploted images into the
+        ouput directory
+    """
+    activations = model.run_graph([image], [
+        ("input_image", tf.identity(model.keras_model.get_layer("input_image").output)),
+        ("res2c_out", model.keras_model.get_layer("res2c_out").output),
+        ("res3c_out", model.keras_model.get_layer("res3c_out").output),
+        ("res4w_out", model.keras_model.get_layer("res4w_out").output),  # for resnet100
+        ("rpn_bbox", model.keras_model.get_layer("rpn_bbox").output),
+        ("roi", model.keras_model.get_layer("ROI").output),
+    ])
+    if savename is not None:
+        savename = os.path.join(result_dir, savename + ".png")
+    vis.display_images(np.transpose(activations["res2c_out"][0, :, :, :4], [2, 0, 1]),
+                       cols=4, out_path=savename, show=False)
