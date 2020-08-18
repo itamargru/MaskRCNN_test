@@ -232,7 +232,7 @@ def detect_and_color_splash(model, image_path=None, video_path=None):
         r = model.detect([image], verbose=1)[0]
         # Color splash
         splash = color_splash(image, r['masks'])
-        # Save output
+        # Save output_IoU0_C1_BG1
         file_name = "splash_{:%Y%m%dT%H%M%S}.png".format(datetime.datetime.now())
         skimage.io.imsave(file_name, splash)
     elif video_path:

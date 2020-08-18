@@ -79,19 +79,21 @@ class PDL1NetConfig(Config):
     IMAGES_PER_GPU = 1
 
     # Number of classes (including background)
-    NUM_CLASSES = 1 + 4  # Background + baloon
+    NUM_CLASSES = 1 + 4  # background + 4 classes
 
     # Number of training steps per epoch
-    STEPS_PER_EPOCH = 100
+    STEPS_PER_EPOCH = 40
 
     # Number of epochs in train
-    EPOCH_NUM = 50
+    EPOCH_NUM = 90
 
-    # Skip detections with < 90% confidence
-    DETECTION_MIN_CONFIDENCE = 0.9
+    # Skip detections with < 70% confidence
+    DETECTION_MIN_CONFIDENCE = 0.7
 
     # BACKBONE = modellib.VGG16Graph()
     BACKBONE = "resnet50"
+
+    VALIDATION_STEPS = 1
 
     # COMPUTE_BACKBONE_SHAPE = modellib.VGG16BackboneShape()
 
@@ -101,6 +103,9 @@ class PDL1NetConfig(Config):
 ############################################################
 
 class PDL1NetDataset(utils.Dataset):
+    def __init__(self, class_map=None, active_inflammation_tag=False):
+        super().__init__(class_map)
+        self.active_inflammation_tag = active_inflammation_tag
 
     def load_pdl1net_dataset(self, dataset_dir, subset):
         """Load a subset of the PDL1 dataset.
@@ -141,7 +146,7 @@ class PDL1NetDataset(utils.Dataset):
         # TODO: make sure the json has the right name
         # ATTENTION! the parser will work only for via POLYGON segmented regions
         # annotations = json.load(open(os.path.join(dataset_dir, "train_synth_via_json.json")))
-        json_dir = os.path.join(dataset_dir, "..", "..", "via_export_json.json")
+        json_dir = os.path.join(dataset_dir, "via_export_json.json")
         annotations = json.load(open(json_dir))
         annotations = list(annotations.values())  # don't need the dict keys
 
@@ -224,10 +229,14 @@ class PDL1NetDataset(utils.Dataset):
             for class_index in stronger_classes:
                 curr_mask[np.logical_and(curr_mask, united_masks[:,:,class_index])] = 0
             mask[:, :, i] = curr_mask
+
+        # if the inflammation class is inactive than change it to "other"
+        # to be removed in the next lines
+        if not self.active_inflammation_tag:
+            mask_classes[mask_classes == self.class_name2id["inflammation"]] = self.class_name2id["other"]
         # remove other from masks
         mask = mask[:, :, mask_classes != self.class_name2id["other"]]
         mask_classes = mask_classes[mask_classes != self.class_name2id["other"]]
-
         # Return mask, and array of class IDs of each instance. Since we have
         # one class ID only, we return an array of 1s
 
@@ -297,7 +306,7 @@ def train(model):
     # COCO trained weights, we don't need to train too long. Also,
     # no need to train all layers, just the heads should do it.
     print("Training network heads")
-    seq = augmenter()
+    seq = None  # augmenter()
     model.train(dataset_train, dataset_val,
                 learning_rate=config.LEARNING_RATE,
                 epochs=config.EPOCH_NUM,
@@ -309,10 +318,23 @@ def train(model):
 
 import visualize_pdl1
 
-def test(model):
+def test(model, show_image=True, sample=1):
+    """
+    Tests the model on the test dataset
+    calculate and plots the Confusion matrix
+    also calculate and plots the score of the area of the pdl1+ / (pdl1+ + pdl1-)
+    :param model: TF model of the Mask-RCNN with the learned weights
+    :param show_image: if true plots the masked images from train
+    :param sample: the frequency of images to show ( 1 each image, 2 every second image, etc. )
+    saves the data into output folder
+    """
     class InferenceConfig(PDL1NetConfig):
         GPU_COUNT = 1
         IMAGES_PER_GPU = 1
+
+    visualize_pdl1.result_dir = os.path.join(visualize_pdl1.result_dir, f"out_{datetime.datetime.now():%Y%m%dT%H%M%S}")
+    if not os.path.exists(visualize_pdl1.result_dir):
+        os.makedirs(visualize_pdl1.result_dir)
 
     # TODO: add test dataset
     # Validation dataset
@@ -340,11 +362,15 @@ def test(model):
         image, image_meta, gt_class_ids, gt_bboxes, gt_masks = \
             modellib.load_image_gt(dataset_val, inference_config,
                                    image_id, use_mini_mask=False)
+        visualize_pdl1.inspect_backbone_activation(model, image, savename=f"{image_id}_backbone")
+
         # molded_images = np.expand_dims(modellib.mold_image(image, inference_config), 0)
         # Run object detection
         results = model.detect([image], verbose=0)
         r = results[0]
-
+        if show_image is True and image_id % sample == 0:
+            visualize_pdl1.imshow_mask(image, r['masks'], r['class_ids'], savename=f"{image_id}", saveoriginal=True)
+            visualize_pdl1.imshow_mask(image, gt_masks, gt_class_ids, savename=f"{image_id}_gt")
         gt_match, pred_match, overlaps = utils.compute_matches(gt_bboxes, gt_class_ids, gt_masks,
                                                             r["rois"], r["class_ids"], r["scores"], r['masks'],
                                                             iou_threshold=0.5, score_threshold=0.0)
@@ -370,31 +396,35 @@ def test(model):
         if not math.isnan(score):
             score_accuracy += [score]
 
-    mean_IoU_per_image_per_class = np.zeros((5, 1))
-    IoU_classes = np.stack(IoU_classes).reshape(-1, 5)
-    for i in range(IoU_classes.shape[1]):
-        if not any(IoU_classes[:, i] != 0):
-            continue
-        mean_IoU_per_image_per_class[i] = IoU_classes[IoU_classes[:, i] != 0, i].mean()
-    # mean_IoU_per_image_per_seg = np.mean(IoU_classes, axis=0)
-    mean_IoUs_per_seg = np.zeros((len(IoUs), 1))
-    for i in range(len(IoUs)):
-        if not IoUs[i]:
-            continue
-        IoUs[i] = np.array(IoUs[i])
-        mean_IoUs_per_seg[i] = np.mean(IoUs[i])
+    file_path = os.path.join(os.getcwd(),"..","..", "output", "out.txt")
+    with open(file_path, "w") as file:
+        mean_IoU_per_image_per_class = np.zeros((5, 1))
+        IoU_classes = np.stack(IoU_classes).reshape(-1, 5)
+        for i in range(IoU_classes.shape[1]):
+            if not any(IoU_classes[:, i] != 0):
+                continue
+            mean_IoU_per_image_per_class[i] = IoU_classes[IoU_classes[:, i] != 0, i].mean()
+        # mean_IoU_per_image_per_seg = np.mean(IoU_classes, axis=0)
+        mean_IoUs_per_seg = np.zeros((len(IoUs), 1))
+        for i in range(len(IoUs)):
+            if not IoUs[i]:
+                continue
+            IoUs[i] = np.array(IoUs[i])
+            mean_IoUs_per_seg[i] = np.mean(IoUs[i])
+        file.write(f'accuracy:\n{score_accuracy}\n')
+        file.write(f"IoU over segments is \n{mean_IoUs_per_seg}\n")
+        file.write(f"IoU over images is \n{mean_IoU_per_image_per_class}\n")
 
-    print(f'accuracy:\n{score_accuracy}')
-    print(f"IoU over segments is {mean_IoUs_per_seg}")
-    print(f"IoU over images is {mean_IoU_per_image_per_class}")
+        file.write("the confusion matrix is:\n {}\n".format(confusstion_matrix))
 
-    print("the confusion matrix is:\n {}".format(confusstion_matrix))
-
-    visualize_pdl1.plot_hist(score_accuracy)
-    # create new class list to replace the 'BG' with 'other'
-    right_indices = [4, 1, 2, 3]
-    copy_class_names = [dataset_val.class_names[i] for i in right_indices]
-    visualize_pdl1.plot_confusion_matrix(confusstion_matrix[0:4, 0:4], copy_class_names)
+        visualize_pdl1.plot_hist(score_accuracy, savename="area_diff_hist")
+        # create new class list to replace the 'BG' with 'other'
+        right_indices = [4, 2, 3]
+        copy_class_names = [dataset_val.class_names[i] for i in right_indices]
+        indices_no_inf = [0] + list(range(2, 4))
+        confusstion_matrix = confusstion_matrix[indices_no_inf, :][:, indices_no_inf]
+        confusstion_matrix = confusstion_matrix / np.sum(confusstion_matrix)
+        visualize_pdl1.plot_confusion_matrix(confusstion_matrix, copy_class_names, savename="confussion_matrix")
 
 
 
@@ -418,7 +448,34 @@ def color_splash(image, mask):
     return splash
 
 
+def detect_and_show_mask(model, image_path):
+    """
+    detects the segments on the image and plots image with colored masked over the image segments
+    :param model: TF model of the Mask-RCNN with the learned weights
+    :param image_path: path to image to make the detection and coloration on
+    """
+    # Run model detection and generate the color splash effect
+    print("Running on {}".format(image_path))
+    # Read image
+    image = skimage.io.imread(args.image)
+    # Detect objects
+    r = model.detect([image], verbose=1)[0]
+    # Color splash
+    visualize_pdl1.imshow_mask(image, r['masks'], r['class_ids'])
+    # Save output_IoU0_C1_BG1
+    # file_name = "splash_{:%Y%m%dT%H%M%S}.png".format(datetime.datetime.now())
+    # skimage.io.imsave(file_name, splash)
+
+    # print("Saved to ", file_name)
+
 def detect_and_color_splash(model, image_path=None, video_path=None):
+    """
+    Detects the segments and plots "splash" - a grayscale image with only segmented section remained colored
+    :param model: TF model of the Mask-RCNN with the learned weights
+    :param image_path: path to video file to make the splash on
+    :param video_path: path to image file to make the splash on
+    :return: saves the image to the cwd folder
+    """
     assert image_path or video_path
 
     # Image or video?
@@ -431,7 +488,7 @@ def detect_and_color_splash(model, image_path=None, video_path=None):
         r = model.detect([image], verbose=1)[0]
         # Color splash
         splash = color_splash(image, r['masks'])
-        # Save output
+        # Save output_IoU0_C1_BG1
         file_name = "splash_{:%Y%m%dT%H%M%S}.png".format(datetime.datetime.now())
         skimage.io.imsave(file_name, splash)
     elif video_path:
@@ -507,6 +564,8 @@ if __name__ == '__main__':
     elif args.command == "splash":
         assert args.image or args.video,\
                "Provide --image or --video to apply color splash"
+    elif args.command == "splash_mask":
+        assert args.image, "Provide --image to apply splash_mask"
 
     print("Weights: ", args.weights)
     print("Dataset: ", args.dataset)
@@ -567,6 +626,8 @@ if __name__ == '__main__':
     elif args.command == "splash":
         detect_and_color_splash(model, image_path=args.image,
                                 video_path=args.video)
+    elif args.command == "splash_mask":
+        detect_and_show_mask(model, image_path=args.image)
     elif args.command == "test":
         test(model)
     else:

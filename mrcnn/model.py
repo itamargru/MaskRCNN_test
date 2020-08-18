@@ -584,7 +584,7 @@ class PyramidROIAlign(KE.Layer):
     """Implements ROI Pooling on multiple levels of the feature pyramid.
 
     Params:
-    - pool_shape: [pool_height, pool_width] of the output pooled regions. Usually [7, 7]
+    - pool_shape: [pool_height, pool_width] of the output_IoU0_C1_BG1 pooled regions. Usually [7, 7]
 
     Inputs:
     - boxes: [batch, num_boxes, (y1, x1, y2, x2)] in normalized
@@ -739,7 +739,7 @@ def detection_targets_graph(proposals, gt_class_ids, gt_boxes, gt_masks, config)
     class_ids: [TRAIN_ROIS_PER_IMAGE]. Integer class IDs. Zero padded.
     deltas: [TRAIN_ROIS_PER_IMAGE, (dy, dx, log(dh), log(dw))]
     masks: [TRAIN_ROIS_PER_IMAGE, height, width]. Masks cropped to bbox
-           boundaries and resized to neural network output size.
+           boundaries and resized to neural network output_IoU0_C1_BG1 size.
 
     Note: Returned arrays might be zero padded if not enough target ROIs.
     """
@@ -878,7 +878,7 @@ class DetectionTargetLayer(KE.Layer):
     target_deltas: [batch, TRAIN_ROIS_PER_IMAGE, (dy, dx, log(dh), log(dw)]
     target_mask: [batch, TRAIN_ROIS_PER_IMAGE, height, width]
                  Masks cropped to bbox boundaries and resized to neural
-                 network output size.
+                 network output_IoU0_C1_BG1 size.
 
     Note: Returned arrays might be zero padded if not enough target ROIs.
     """
@@ -1004,7 +1004,7 @@ def refine_detections_graph(rois, probs, deltas, window, config):
     top_ids = tf.nn.top_k(class_scores_keep, k=num_keep, sorted=True)[1]
     keep = tf.gather(keep, top_ids)
 
-    # Arrange output as [N, (y1, x1, y2, x2, class_id, score)]
+    # Arrange output_IoU0_C1_BG1 as [N, (y1, x1, y2, x2, class_id, score)]
     # Coordinates are normalized.
     detections = tf.concat([
         tf.gather(refined_rois, keep),
@@ -1051,7 +1051,7 @@ class DetectionLayer(KE.Layer):
             lambda x, y, w, z: refine_detections_graph(x, y, w, z, self.config),
             self.config.IMAGES_PER_GPU)
 
-        # Reshape output
+        # Reshape output_IoU0_C1_BG1
         # [batch, num_detections, (y1, x1, y2, x2, class_id, class_score)] in
         # normalized coordinates
         return tf.reshape(
@@ -1550,7 +1550,7 @@ def build_detection_targets(rpn_rois, gt_class_ids, gt_boxes, gt_masks, config):
     bboxes: [TRAIN_ROIS_PER_IMAGE, NUM_CLASSES, (y, x, log(h), log(w))]. Class-specific
             bbox refinements.
     masks: [TRAIN_ROIS_PER_IMAGE, height, width, NUM_CLASSES). Class specific masks cropped
-           to bbox boundaries and resized to neural network output size.
+           to bbox boundaries and resized to neural network output_IoU0_C1_BG1 size.
     """
     assert rpn_rois.shape[0] > 0
     assert gt_class_ids.dtype == np.int32, "Expected int but got {}".format(
@@ -2038,7 +2038,7 @@ def data_generator(dataset, config, shuffle=True, augment=False, augmentation=No
                     inputs.extend([batch_rpn_rois])
                     if detection_targets:
                         inputs.extend([batch_rois])
-                        # Keras requires that output and targets have the same number of dimensions
+                        # Keras requires that output_IoU0_C1_BG1 and targets have the same number of dimensions
                         batch_mrcnn_class_ids = np.expand_dims(
                             batch_mrcnn_class_ids, -1)
                         outputs.extend(
@@ -2285,7 +2285,7 @@ class MaskRCNN():
                                      fc_layers_size=config.FPN_CLASSIF_FC_LAYERS_SIZE)
 
             # Detections
-            # output is [batch, num_detections, (y1, x1, y2, x2, class_id, score)] in
+            # output_IoU0_C1_BG1 is [batch, num_detections, (y1, x1, y2, x2, class_id, score)] in
             # normalized coordinates
             detections = DetectionLayer(config, name="mrcnn_detection")(
                 [rpn_rois, mrcnn_class, mrcnn_bbox, input_image_meta])
@@ -2664,7 +2664,7 @@ class MaskRCNN():
     def unmold_detections(self, detections, mrcnn_mask, original_image_shape,
                           image_shape, window):
         """Reformats the detections of one image from the format of the neural
-        network output to a format suitable for use in the rest of the
+        network output_IoU0_C1_BG1 to a format suitable for use in the rest of the
         application.
 
         detections: [N, (y1, x1, y2, x2, class_id, score)] in normalized coordinates

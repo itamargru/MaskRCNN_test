@@ -501,7 +501,7 @@ def resize_mask(mask, scale, padding, crop=None):
     padding: Padding to add to the mask in the form
             [(top, bottom), (left, right), (0, 0)]
     """
-    # Suppress warning from scipy 0.13.0, the output shape of zoom() is
+    # Suppress warning from scipy 0.13.0, the output_IoU0_C1_BG1 shape of zoom() is
     # calculated with round() instead of int()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")

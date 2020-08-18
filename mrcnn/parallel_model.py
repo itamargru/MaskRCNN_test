@@ -91,7 +91,7 @@ class ParallelModel(KM.Model):
             for outputs, name in zip(outputs_all, output_names):
                 # Concatenate or average outputs?
                 # Outputs usually have a batch dimension and we concatenate
-                # across it. If they don't, then the output is likely a loss
+                # across it. If they don't, then the output_IoU0_C1_BG1 is likely a loss
                 # or a metric value that gets averaged across the batch.
                 # Keras expects losses and metrics to be scalars.
                 if K.int_shape(outputs[0]) == ():
